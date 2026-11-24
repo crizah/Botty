@@ -18,6 +18,8 @@ CREATE TABLE wa_group_members (
     wa_id      TEXT NOT NULL,
     phone      TEXT,
     push_name  TEXT,
+    -- set when the member leaves the group; the row stays so past reports/allowlist history still resolve
+    left_at    DATETIME,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (group_id, wa_id)
 );

@@ -31,14 +31,16 @@ const (
 type Client struct {
 	sessionDSN string
 	router     *Router
+	keeper     *Keeper
 	status     atomic.Value // Status
 }
 
 // New builds a client. sessionDB is a SQLite file for whatsmeow's own session keys (not the app DB).
-func New(sessionDB string, handler Handler, workers int) *Client {
+func New(sessionDB string, handler Handler, keeper *Keeper, workers int) *Client {
 	c := &Client{
 		sessionDSN: fmt.Sprintf("file:%s?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)", sessionDB),
 		router:     NewRouter(handler, workers),
+		keeper:     keeper,
 	}
 	c.status.Store(StatusConnecting)
 	return c
@@ -85,6 +87,11 @@ func (c *Client) session(ctx context.Context, device *store.Device) bool {
 		switch e := evt.(type) {
 		case *events.Message:
 			c.router.Dispatch(cli, e)
+		case *events.GroupInfo:
+			chat := e.JID
+			c.router.Submit(chat.String(), func(ctx context.Context) {
+				c.keeper.OnGroupInfo(ctx, e, func(ctx context.Context) ([]Participant, error) { return participants(ctx, cli, chat) })
+			})
 		case *events.Connected:
 			c.status.Store(StatusConnected)
 			log.Printf("[wa] connected as %s", cli.Store.ID)
@@ -96,7 +103,6 @@ func (c *Client) session(ctx context.Context, device *store.Device) bool {
 			default:
 			}
 		}
-		// TODO: change - handle *events.JoinedGroup / group participant updates to keep wa_groups in sync
 	})
 
 	c.status.Store(StatusConnecting)

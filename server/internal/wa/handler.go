@@ -24,20 +24,15 @@ const (
 // ignores everything else without logging or storing it.
 // TODO: change - extend with tag handling (task creation) once that design is settled.
 type LinkHandler struct {
-	Claims  *services.ClaimService
-	Members MemberSyncer
+	Claims *services.ClaimService
+	Keeper *Keeper
 
 	mu       sync.Mutex
 	failures map[string][]time.Time // sender -> recent failed attempts
 }
 
-// MemberSyncer stores a group's participants (implemented by services.GroupService).
-type MemberSyncer interface {
-	SyncMembers(ctx context.Context, groupID string, members []services.MemberSync) error
-}
-
-func NewLinkHandler(c *services.ClaimService, members MemberSyncer) *LinkHandler {
-	return &LinkHandler{Claims: c, Members: members, failures: map[string][]time.Time{}}
+func NewLinkHandler(c *services.ClaimService, k *Keeper) *LinkHandler {
+	return &LinkHandler{Claims: c, Keeper: k, failures: map[string][]time.Time{}}
 }
 
 func (h *LinkHandler) Handle(ctx context.Context, m Message) {
@@ -59,7 +54,7 @@ func (h *LinkHandler) Handle(ctx context.Context, m Message) {
 	switch {
 	case err == nil:
 		log.Printf("[wa] linked group %s to its owner", g.ID)
-		go h.syncMembers(ctx, g.ID, m) // build the group entity in the background
+		go h.Keeper.Reconcile(ctx, m.GroupJID, g.ID, m.Participants) // build the member list in the background
 		_ = m.Reply(ctx, "yipee yayay linked!!")
 	case errors.As(err, &se) && se.Kind == services.KindNotFound:
 		h.fail(m.SenderJID)
@@ -93,29 +88,4 @@ func (h *LinkHandler) fail(sender string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.failures[sender] = append(h.recent(sender), time.Now())
-}
-
-// syncMembers is the "new group" pipeline: fetch participants, map WhatsApp IDs to phone/name, store them.
-// TODO: change - also re-run on group-participant events so joins/leaves stay in sync.
-func (h *LinkHandler) syncMembers(parent context.Context, groupID string, m Message) {
-	ctx, cancel := context.WithTimeout(parent, time.Minute)
-	defer cancel()
-	ps, err := m.Participants(ctx)
-	if err != nil {
-		log.Printf("[wa] member sync (group %s): %v", groupID, err)
-		return
-	}
-	members := make([]services.MemberSync, 0, len(ps))
-	withPhone := 0
-	for _, p := range ps {
-		if p.Phone != "" {
-			withPhone++
-		}
-		members = append(members, services.MemberSync{WaID: p.WaID, Phone: p.Phone, PushName: p.Name})
-	}
-	if err := h.Members.SyncMembers(ctx, groupID, members); err != nil {
-		log.Printf("[wa] member sync (group %s): %v", groupID, err)
-		return
-	}
-	log.Printf("[wa] group %s: synced %d members (%d with phone numbers)", groupID, len(members), withPhone)
 }

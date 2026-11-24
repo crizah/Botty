@@ -85,6 +85,39 @@ func (s *GroupService) SyncMembers(ctx context.Context, groupID string, members 
 	})
 }
 
+// GroupIDByJID returns our ID for a linked WhatsApp group; ok is false for groups nobody has linked.
+func (s *GroupService) GroupIDByJID(ctx context.Context, jid string) (string, bool) {
+	g, err := s.Queries.GetGroupByJID(ctx, jid)
+	return g.ID, err == nil
+}
+
+// HasMember reports whether any of the WhatsApp IDs is a current member of the group.
+func (s *GroupService) HasMember(ctx context.Context, groupID string, waIDs ...string) (bool, error) {
+	if len(waIDs) == 0 {
+		return false, nil
+	}
+	n, err := s.Queries.CountActiveMembers(ctx, db.CountActiveMembersParams{GroupID: groupID, Ids: waIDs})
+	return n > 0, err
+}
+
+// MarkLeftExcept flags every current member not in keep as having left and drops them from the allowlist. Callers must pass a
+// non-empty keep list (an empty one would mark the whole group as left).
+func (s *GroupService) MarkLeftExcept(ctx context.Context, groupID string, keep []string) (int64, error) {
+	if len(keep) == 0 {
+		return 0, nil
+	}
+	var n int64
+	// leavers also lose their tag-allowlist entry, so a rejoin needs a fresh add
+	err := withTx(ctx, s.db, s.Queries, func(q *db.Queries) (err error) {
+		if err = q.DeleteAllowlistForLeavers(ctx, db.DeleteAllowlistForLeaversParams{GroupID: groupID, Keep: keep}); err != nil {
+			return err
+		}
+		n, err = q.MarkMembersLeftExcept(ctx, db.MarkMembersLeftExceptParams{GroupID: groupID, Keep: keep})
+		return err
+	})
+	return n, err
+}
+
 // ---- groups inside a project ----
 
 func (s *GroupService) ListForProject(ctx context.Context, userID, projectID string) (schemas.ProjectGroupsResponse, error) {

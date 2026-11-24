@@ -42,7 +42,8 @@ func main() {
 	defer stop()
 
 	if cfg.WAEnabled {
-		waClient := wa.New(cfg.WASessionDB, wa.NewLinkHandler(services.NewClaimService(conn), services.NewGroupService(conn, cfg.BotNumber, cfg.DevMode)), cfg.WAWorkers)
+		keeper := wa.NewKeeper(services.NewGroupService(conn, cfg.BotNumber, cfg.DevMode))
+		waClient := wa.New(cfg.WASessionDB, wa.Chain{wa.NewLinkHandler(services.NewClaimService(conn), keeper), keeper}, keeper, cfg.WAWorkers)
 		go func() {
 			if err := waClient.Run(ctx); err != nil {
 				log.Printf("[wa] stopped: %v", err)

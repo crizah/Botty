@@ -49,7 +49,7 @@ type Handler interface {
 // group's messages are handled in order while different groups run in parallel.
 type Router struct {
 	handler Handler
-	queues  []chan Message
+	queues  []chan func(context.Context)
 
 	mu      sync.Mutex
 	seenIDs map[string]struct{}
@@ -74,22 +74,22 @@ func NewRouter(h Handler, workers int) *Router {
 	if workers < 1 {
 		workers = 8
 	}
-	r := &Router{handler: h, queues: make([]chan Message, workers), seenIDs: map[string]struct{}{}}
+	r := &Router{handler: h, queues: make([]chan func(context.Context), workers), seenIDs: map[string]struct{}{}}
 	for i := range r.queues {
-		r.queues[i] = make(chan Message, 256)
+		r.queues[i] = make(chan func(context.Context), 256)
 	}
 	return r
 }
 
 func (r *Router) Start(ctx context.Context) {
 	for _, q := range r.queues {
-		go func(q chan Message) {
+		go func(q chan func(context.Context)) {
 			for {
 				select {
 				case <-ctx.Done():
 					return
-				case m := <-q:
-					r.handler.Handle(ctx, m)
+				case job := <-q:
+					job(ctx)
 				}
 			}
 		}(q)
@@ -137,13 +137,18 @@ func (r *Router) Dispatch(cli *whatsmeow.Client, e *events.Message) {
 	if r.seen(m.ID) {
 		return
 	}
+	r.Submit(m.GroupJID, func(ctx context.Context) { r.handler.Handle(ctx, m) })
+}
+
+// Submit queues a job on the worker that owns this group, so jobs for one group run in order.
+func (r *Router) Submit(groupJID string, job func(context.Context)) {
 	h := fnv.New32a()
-	_, _ = h.Write([]byte(m.GroupJID))
+	_, _ = h.Write([]byte(groupJID))
 	q := r.queues[int(h.Sum32())%len(r.queues)]
 	select {
-	case q <- m:
+	case q <- job:
 	default:
-		log.Printf("[wa] queue full, dropping message %s", m.ID) // TODO: change - decide on backpressure
+		log.Printf("[wa] queue full, dropping a job for %s", groupJID) // TODO: change - decide on backpressure
 	}
 }
 

@@ -39,7 +39,7 @@ DELETE FROM project_groups WHERE project_id = ? AND group_id = ?;
 
 -- name: ListProjectGroups :many
 SELECT g.id, g.jid, g.name,
-       (SELECT COUNT(*) FROM wa_group_members m WHERE m.group_id = g.id) AS member_count,
+       (SELECT COUNT(*) FROM wa_group_members m WHERE m.group_id = g.id AND m.left_at IS NULL) AS member_count,
        (SELECT COUNT(*) FROM tag_allowlist a WHERE a.project_id = pg.project_id AND a.group_id = g.id) AS allowlist_count
 FROM project_groups pg
 JOIN wa_groups g ON g.id = pg.group_id
@@ -58,6 +58,6 @@ DELETE FROM tag_allowlist WHERE project_id = ? AND group_id = ? AND member_id = 
 -- name: ListAllowlist :many
 SELECT m.id, m.wa_id, m.phone, m.push_name
 FROM tag_allowlist a
-JOIN wa_group_members m ON m.id = a.member_id
+JOIN wa_group_members m ON m.id = a.member_id AND m.left_at IS NULL
 WHERE a.project_id = ? AND a.group_id = ?
 ORDER BY m.push_name, m.wa_id;

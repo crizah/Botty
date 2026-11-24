@@ -7,8 +7,37 @@ package db
 
 import (
 	"context"
+	"strings"
 	"time"
 )
+
+const countActiveMembers = `-- name: CountActiveMembers :one
+SELECT COUNT(*) FROM wa_group_members
+WHERE group_id = ?1 AND left_at IS NULL AND wa_id IN (/*SLICE:ids*/?)
+`
+
+type CountActiveMembersParams struct {
+	GroupID string   `json:"group_id"`
+	Ids     []string `json:"ids"`
+}
+
+func (q *Queries) CountActiveMembers(ctx context.Context, arg CountActiveMembersParams) (int64, error) {
+	query := countActiveMembers
+	var queryParams []interface{}
+	queryParams = append(queryParams, arg.GroupID)
+	if len(arg.Ids) > 0 {
+		for _, v := range arg.Ids {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:ids*/?", strings.Repeat(",?", len(arg.Ids))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:ids*/?", "NULL", 1)
+	}
+	row := q.db.QueryRowContext(ctx, query, queryParams...)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
 
 const createClaim = `-- name: CreateClaim :one
 INSERT INTO group_claims (id, code, user_id, expires_at)
@@ -68,6 +97,35 @@ func (q *Queries) CreateGroup(ctx context.Context, arg CreateGroupParams) (WaGro
 	return i, err
 }
 
+const deleteAllowlistForLeavers = `-- name: DeleteAllowlistForLeavers :exec
+DELETE FROM tag_allowlist
+WHERE member_id IN (
+    SELECT m.id FROM wa_group_members m
+    WHERE m.group_id = ?1 AND m.left_at IS NULL AND m.wa_id NOT IN (/*SLICE:keep*/?)
+)
+`
+
+type DeleteAllowlistForLeaversParams struct {
+	GroupID string   `json:"group_id"`
+	Keep    []string `json:"keep"`
+}
+
+func (q *Queries) DeleteAllowlistForLeavers(ctx context.Context, arg DeleteAllowlistForLeaversParams) error {
+	query := deleteAllowlistForLeavers
+	var queryParams []interface{}
+	queryParams = append(queryParams, arg.GroupID)
+	if len(arg.Keep) > 0 {
+		for _, v := range arg.Keep {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:keep*/?", strings.Repeat(",?", len(arg.Keep))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:keep*/?", "NULL", 1)
+	}
+	_, err := q.db.ExecContext(ctx, query, queryParams...)
+	return err
+}
+
 const getGroup = `-- name: GetGroup :one
 SELECT id, jid, name, owner_user_id, created_at FROM wa_groups WHERE id = ?
 `
@@ -103,7 +161,7 @@ func (q *Queries) GetGroupByJID(ctx context.Context, jid string) (WaGroup, error
 }
 
 const getMember = `-- name: GetMember :one
-SELECT id, group_id, wa_id, phone, push_name, created_at FROM wa_group_members WHERE id = ?
+SELECT id, group_id, wa_id, phone, push_name, left_at, created_at FROM wa_group_members WHERE id = ?
 `
 
 func (q *Queries) GetMember(ctx context.Context, id string) (WaGroupMember, error) {
@@ -115,6 +173,7 @@ func (q *Queries) GetMember(ctx context.Context, id string) (WaGroupMember, erro
 		&i.WaID,
 		&i.Phone,
 		&i.PushName,
+		&i.LeftAt,
 		&i.CreatedAt,
 	)
 	return i, err
@@ -142,7 +201,7 @@ func (q *Queries) GetOpenClaimByCode(ctx context.Context, code string) (GroupCla
 
 const listGroupsForOwner = `-- name: ListGroupsForOwner :many
 SELECT g.id, g.jid, g.name, g.created_at, pg.project_id,
-       (SELECT COUNT(*) FROM wa_group_members m WHERE m.group_id = g.id) AS member_count
+       (SELECT COUNT(*) FROM wa_group_members m WHERE m.group_id = g.id AND m.left_at IS NULL) AS member_count
 FROM wa_groups g
 LEFT JOIN project_groups pg ON pg.group_id = g.id
 WHERE g.owner_user_id = ?
@@ -189,7 +248,7 @@ func (q *Queries) ListGroupsForOwner(ctx context.Context, ownerUserID string) ([
 }
 
 const listMembersByGroup = `-- name: ListMembersByGroup :many
-SELECT id, group_id, wa_id, phone, push_name, created_at FROM wa_group_members WHERE group_id = ? ORDER BY push_name, wa_id
+SELECT id, group_id, wa_id, phone, push_name, left_at, created_at FROM wa_group_members WHERE group_id = ? AND left_at IS NULL ORDER BY push_name, wa_id
 `
 
 func (q *Queries) ListMembersByGroup(ctx context.Context, groupID string) ([]WaGroupMember, error) {
@@ -207,6 +266,7 @@ func (q *Queries) ListMembersByGroup(ctx context.Context, groupID string) ([]WaG
 			&i.WaID,
 			&i.Phone,
 			&i.PushName,
+			&i.LeftAt,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -223,7 +283,7 @@ func (q *Queries) ListMembersByGroup(ctx context.Context, groupID string) ([]WaG
 }
 
 const listMembersWithoutPhone = `-- name: ListMembersWithoutPhone :many
-SELECT id, group_id, wa_id, phone, push_name, created_at FROM wa_group_members WHERE phone IS NULL LIMIT ?
+SELECT id, group_id, wa_id, phone, push_name, left_at, created_at FROM wa_group_members WHERE phone IS NULL LIMIT ?
 `
 
 func (q *Queries) ListMembersWithoutPhone(ctx context.Context, limit int64) ([]WaGroupMember, error) {
@@ -241,6 +301,7 @@ func (q *Queries) ListMembersWithoutPhone(ctx context.Context, limit int64) ([]W
 			&i.WaID,
 			&i.Phone,
 			&i.PushName,
+			&i.LeftAt,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -307,6 +368,35 @@ func (q *Queries) MarkClaimUsed(ctx context.Context, arg MarkClaimUsedParams) er
 	return err
 }
 
+const markMembersLeftExcept = `-- name: MarkMembersLeftExcept :execrows
+UPDATE wa_group_members SET left_at = CURRENT_TIMESTAMP
+WHERE group_id = ?1 AND left_at IS NULL AND wa_id NOT IN (/*SLICE:keep*/?)
+`
+
+type MarkMembersLeftExceptParams struct {
+	GroupID string   `json:"group_id"`
+	Keep    []string `json:"keep"`
+}
+
+func (q *Queries) MarkMembersLeftExcept(ctx context.Context, arg MarkMembersLeftExceptParams) (int64, error) {
+	query := markMembersLeftExcept
+	var queryParams []interface{}
+	queryParams = append(queryParams, arg.GroupID)
+	if len(arg.Keep) > 0 {
+		for _, v := range arg.Keep {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:keep*/?", strings.Repeat(",?", len(arg.Keep))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:keep*/?", "NULL", 1)
+	}
+	result, err := q.db.ExecContext(ctx, query, queryParams...)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const setMemberPhone = `-- name: SetMemberPhone :exec
 UPDATE wa_group_members SET phone = ? WHERE id = ?
 `
@@ -326,8 +416,9 @@ INSERT INTO wa_group_members (id, group_id, wa_id, phone, push_name)
 VALUES (?, ?, ?, ?, ?)
 ON CONFLICT (group_id, wa_id) DO UPDATE SET
     push_name = COALESCE(excluded.push_name, wa_group_members.push_name),
-    phone     = COALESCE(excluded.phone, wa_group_members.phone)
-RETURNING id, group_id, wa_id, phone, push_name, created_at
+    phone     = COALESCE(excluded.phone, wa_group_members.phone),
+    left_at   = NULL
+RETURNING id, group_id, wa_id, phone, push_name, left_at, created_at
 `
 
 type UpsertMemberParams struct {
@@ -353,6 +444,7 @@ func (q *Queries) UpsertMember(ctx context.Context, arg UpsertMemberParams) (WaG
 		&i.WaID,
 		&i.Phone,
 		&i.PushName,
+		&i.LeftAt,
 		&i.CreatedAt,
 	)
 	return i, err

@@ -117,10 +117,11 @@ type WaGroup struct {
 }
 
 type WaGroupMember struct {
-	ID        string    `json:"id"`
-	GroupID   string    `json:"group_id"`
-	WaID      string    `json:"wa_id"`
-	Phone     *string   `json:"phone"`
-	PushName  *string   `json:"push_name"`
-	CreatedAt time.Time `json:"created_at"`
+	ID        string     `json:"id"`
+	GroupID   string     `json:"group_id"`
+	WaID      string     `json:"wa_id"`
+	Phone     *string    `json:"phone"`
+	PushName  *string    `json:"push_name"`
+	LeftAt    *time.Time `json:"left_at"`
+	CreatedAt time.Time  `json:"created_at"`
 }

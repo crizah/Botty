@@ -12,6 +12,7 @@ type Querier interface {
 	AddAllowlist(ctx context.Context, arg AddAllowlistParams) error
 	AddProjectMember(ctx context.Context, arg AddProjectMemberParams) error
 	AttachGroup(ctx context.Context, arg AttachGroupParams) error
+	CountActiveMembers(ctx context.Context, arg CountActiveMembersParams) (int64, error)
 	CountOpenReports(ctx context.Context, taskID string) (int64, error)
 	CountReports(ctx context.Context, taskID string) (int64, error)
 	CreateAuditLog(ctx context.Context, arg CreateAuditLogParams) error
@@ -22,6 +23,7 @@ type Querier interface {
 	CreateReport(ctx context.Context, arg CreateReportParams) (Report, error)
 	CreateTask(ctx context.Context, arg CreateTaskParams) (Task, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
+	DeleteAllowlistForLeavers(ctx context.Context, arg DeleteAllowlistForLeaversParams) error
 	DetachGroup(ctx context.Context, arg DetachGroupParams) error
 	GetGroup(ctx context.Context, id string) (WaGroup, error)
 	GetGroupByJID(ctx context.Context, jid string) (WaGroup, error)
@@ -47,6 +49,7 @@ type Querier interface {
 	ListReportsByTask(ctx context.Context, taskID string) ([]ListReportsByTaskRow, error)
 	ListTasksByProject(ctx context.Context, projectID string) ([]ListTasksByProjectRow, error)
 	MarkClaimUsed(ctx context.Context, arg MarkClaimUsedParams) error
+	MarkMembersLeftExcept(ctx context.Context, arg MarkMembersLeftExceptParams) (int64, error)
 	NextTaskNumber(ctx context.Context, projectID string) (int64, error)
 	RemoveAllowlist(ctx context.Context, arg RemoveAllowlistParams) error
 	SetMemberPhone(ctx context.Context, arg SetMemberPhoneParams) error
