@@ -67,9 +67,9 @@ func (q *Queries) CreateComment(ctx context.Context, arg CreateCommentParams) (C
 }
 
 const createReport = `-- name: CreateReport :one
-INSERT INTO reports (id, task_id, group_id, reporter_member_id, message_id, message_text, assigned_by_member_id)
-VALUES (?, ?, ?, ?, ?, ?, ?)
-RETURNING id, task_id, group_id, reporter_member_id, message_id, message_text, assigned_by_member_id, status, closed_by_member_id, closed_by_user_id, closed_via, closed_at, created_at, updated_at
+INSERT INTO reports (id, task_id, group_id, reporter_member_id, message_id, message_text, assigned_by_member_id, tag_message_id)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, task_id, group_id, reporter_member_id, message_id, message_text, tag_message_id, assigned_by_member_id, status, closed_by_member_id, closed_by_user_id, closed_via, closed_at, created_at, updated_at
 `
 
 type CreateReportParams struct {
@@ -80,6 +80,7 @@ type CreateReportParams struct {
 	MessageID          string  `json:"message_id"`
 	MessageText        string  `json:"message_text"`
 	AssignedByMemberID *string `json:"assigned_by_member_id"`
+	TagMessageID       string  `json:"tag_message_id"`
 }
 
 func (q *Queries) CreateReport(ctx context.Context, arg CreateReportParams) (Report, error) {
@@ -91,6 +92,7 @@ func (q *Queries) CreateReport(ctx context.Context, arg CreateReportParams) (Rep
 		arg.MessageID,
 		arg.MessageText,
 		arg.AssignedByMemberID,
+		arg.TagMessageID,
 	)
 	var i Report
 	err := row.Scan(
@@ -100,6 +102,7 @@ func (q *Queries) CreateReport(ctx context.Context, arg CreateReportParams) (Rep
 		&i.ReporterMemberID,
 		&i.MessageID,
 		&i.MessageText,
+		&i.TagMessageID,
 		&i.AssignedByMemberID,
 		&i.Status,
 		&i.ClosedByMemberID,
@@ -152,7 +155,7 @@ func (q *Queries) CreateTask(ctx context.Context, arg CreateTaskParams) (Task, e
 }
 
 const getReport = `-- name: GetReport :one
-SELECT id, task_id, group_id, reporter_member_id, message_id, message_text, assigned_by_member_id, status, closed_by_member_id, closed_by_user_id, closed_via, closed_at, created_at, updated_at FROM reports WHERE id = ?
+SELECT id, task_id, group_id, reporter_member_id, message_id, message_text, tag_message_id, assigned_by_member_id, status, closed_by_member_id, closed_by_user_id, closed_via, closed_at, created_at, updated_at FROM reports WHERE id = ?
 `
 
 func (q *Queries) GetReport(ctx context.Context, id string) (Report, error) {
@@ -165,6 +168,7 @@ func (q *Queries) GetReport(ctx context.Context, id string) (Report, error) {
 		&i.ReporterMemberID,
 		&i.MessageID,
 		&i.MessageText,
+		&i.TagMessageID,
 		&i.AssignedByMemberID,
 		&i.Status,
 		&i.ClosedByMemberID,
@@ -178,9 +182,10 @@ func (q *Queries) GetReport(ctx context.Context, id string) (Report, error) {
 }
 
 const getReportByMessage = `-- name: GetReportByMessage :one
-SELECT r.id, r.task_id, r.group_id, r.reporter_member_id, r.message_id, r.message_text, r.assigned_by_member_id, r.status, r.closed_by_member_id, r.closed_by_user_id, r.closed_via, r.closed_at, r.created_at, r.updated_at FROM reports r
+SELECT r.id, r.task_id, r.group_id, r.reporter_member_id, r.message_id, r.message_text, r.tag_message_id, r.assigned_by_member_id, r.status, r.closed_by_member_id, r.closed_by_user_id, r.closed_via, r.closed_at, r.created_at, r.updated_at FROM reports r
 JOIN tasks t ON t.id = r.task_id
-WHERE t.project_id = ? AND r.group_id = ? AND r.message_id = ?
+WHERE t.project_id = ?1 AND r.group_id = ?2
+  AND (r.message_id = ?3 OR r.tag_message_id = ?3)
 LIMIT 1
 `
 
@@ -200,6 +205,7 @@ func (q *Queries) GetReportByMessage(ctx context.Context, arg GetReportByMessage
 		&i.ReporterMemberID,
 		&i.MessageID,
 		&i.MessageText,
+		&i.TagMessageID,
 		&i.AssignedByMemberID,
 		&i.Status,
 		&i.ClosedByMemberID,
@@ -489,7 +495,7 @@ UPDATE reports SET
     closed_at           = ?5,
     updated_at          = CURRENT_TIMESTAMP
 WHERE id = ?6
-RETURNING id, task_id, group_id, reporter_member_id, message_id, message_text, assigned_by_member_id, status, closed_by_member_id, closed_by_user_id, closed_via, closed_at, created_at, updated_at
+RETURNING id, task_id, group_id, reporter_member_id, message_id, message_text, tag_message_id, assigned_by_member_id, status, closed_by_member_id, closed_by_user_id, closed_via, closed_at, created_at, updated_at
 `
 
 type SetReportStatusParams struct {
@@ -518,6 +524,7 @@ func (q *Queries) SetReportStatus(ctx context.Context, arg SetReportStatusParams
 		&i.ReporterMemberID,
 		&i.MessageID,
 		&i.MessageText,
+		&i.TagMessageID,
 		&i.AssignedByMemberID,
 		&i.Status,
 		&i.ClosedByMemberID,

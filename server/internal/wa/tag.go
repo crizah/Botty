@@ -6,7 +6,6 @@ import (
 	"log"
 	"regexp"
 	"strings"
-	"sync"
 	"time"
 
 	db "server/internal/db/sqlc"
@@ -39,8 +38,9 @@ var (
 func isDone(text string) bool { return doneRe.MatchString(mentionTok.ReplaceAllString(text, " ")) }
 
 const (
-	optNone = "NONE" // the "doesn't match any existing task" option
-	taskTO  = 40 * time.Second
+	optNone    = "NONE"     // doesn't match any existing task: a new request
+	optNotTask = "NOT_TASK" // chit-chat, thanks, greetings: not a request at all
+	taskTO     = 40 * time.Second
 )
 
 // TagHandler handles "@botty ..." sent as a reply to someone's message:
@@ -82,7 +82,7 @@ func (h *TagHandler) Handle(ctx context.Context, m Message) {
 		return
 	}
 
-	in := services.TagInput{MessageID: m.QuotedID, MessageText: m.QuotedText, ReporterWaID: ids(m.QuotedSender)}
+	in := services.TagInput{TagMessageID: m.ID, MessageID: m.QuotedID, MessageText: m.QuotedText, ReporterWaID: ids(m.QuotedSender)}
 	if isDone(m.Text) {
 		h.done(ctx, m, tc, in)
 	} else {
@@ -101,30 +101,20 @@ func (h *TagHandler) create(ctx context.Context, m Message, tc services.TagConte
 		return
 	}
 
-	// the classifier and the naming model run at the same time
-	var (
-		wg       sync.WaitGroup
-		pickedID string
-		naming   sarvam.Naming
-		nameErr  error
-	)
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		pickedID = h.pick(ctx, in.MessageText, tasks, "Which existing task is this message about? Choose "+optNone+" if it is a different problem.")
-	}()
-	go func() {
-		defer wg.Done()
-		naming, nameErr = h.AI.Name(ctx, in.MessageText)
-	}()
-	wg.Wait()
-
-	if pickedID != "" {
-		in.TaskID = pickedID
-	} else {
-		if nameErr != nil || naming.Title == "" {
-			if nameErr != nil {
-				log.Printf("[wa] naming failed, using fallback title: %v", nameErr)
+	// classify first; the naming model is only called when a new task will actually be made
+	d := h.decide(ctx, in.MessageText, tasks, true)
+	switch d.kind {
+	case kindNotTask:
+		log.Printf("[wa] tag: classified as not a task, skipped")
+		_ = m.Reply(ctx, "not a task")
+		return
+	case kindExisting:
+		in.TaskID = d.taskID
+	default:
+		naming, err := h.AI.Name(ctx, in.MessageText)
+		if err != nil || naming.Title == "" {
+			if err != nil {
+				log.Printf("[wa] naming failed, using fallback title: %v", err)
 			}
 			naming = sarvam.Naming{Title: fallbackTitle(in.MessageText)}
 		}
@@ -147,8 +137,9 @@ func (h *TagHandler) done(ctx context.Context, m Message, tc services.TagContext
 			log.Printf("[wa] tag open tasks: %v", err)
 			return
 		}
-		in.TaskID = h.pick(ctx, in.MessageText, tasks, "Which existing task does this message belong to? Choose "+optNone+" if none of them fit.")
-		if in.TaskID == "" {
+		d := h.decide(ctx, in.MessageText, tasks, false)
+		in.TaskID = d.taskID
+		if d.kind != kindExisting {
 			_ = m.Reply(ctx, "I couldn't tell which task that is. Reply to the original request with @botty done.")
 			return
 		}
@@ -163,12 +154,23 @@ func (h *TagHandler) done(ctx context.Context, m Message, tc services.TagContext
 	_ = m.Reply(ctx, "done")
 }
 
-// pick returns the ID of the open task Prism is confident about, or "" (new task / no match).
-func (h *TagHandler) pick(ctx context.Context, text string, tasks []services.TaskCandidate, instructions string) string {
-	if len(tasks) == 0 {
-		return ""
-	}
-	opts := make([]sarvam.Option, 0, len(tasks)+1)
+type decisionKind int
+
+const (
+	kindNew      decisionKind = iota // make a new task
+	kindExisting                     // belongs to an existing task
+	kindNotTask                      // chit-chat, ignore
+)
+
+type decision struct {
+	kind   decisionKind
+	taskID string
+}
+
+// decide asks Prism where the message belongs: one of the open tasks, a new task, or (when
+// allowNotTask) "not a task". A low-confidence or failed answer means a new task.
+func (h *TagHandler) decide(ctx context.Context, text string, tasks []services.TaskCandidate, allowNotTask bool) decision {
+	opts := make([]sarvam.Option, 0, len(tasks)+2)
 	for _, t := range tasks {
 		d := t.Title
 		if t.Description != "" {
@@ -176,12 +178,17 @@ func (h *TagHandler) pick(ctx context.Context, text string, tasks []services.Tas
 		}
 		opts = append(opts, sarvam.Option{ID: t.ID, Text: d})
 	}
-	opts = append(opts, sarvam.Option{ID: optNone, Text: "None of the above: a different, new request"})
+	opts = append(opts, sarvam.Option{ID: optNone, Text: "None of the above: a different, new request or problem that needs doing"})
+	instr := "Which existing task is this message about? Choose " + optNone + " if it is a different problem."
+	if allowNotTask {
+		opts = append(opts, sarvam.Option{ID: optNotTask, Text: "Not a task: chit-chat, thanks, greetings, jokes or a plain statement with nothing to do"})
+		instr += " Choose " + optNotTask + " if it is not a request or problem at all."
+	}
 
-	probs, err := h.AI.Choose(ctx, text, instructions, opts)
+	probs, err := h.AI.Choose(ctx, text, instr, opts)
 	if err != nil {
-		log.Printf("[wa] prism: %v", err) // falls back to "no match"
-		return ""
+		log.Printf("[wa] prism: %v", err) // falls back to a new task
+		return decision{kind: kindNew}
 	}
 	best, bp := "", 0.0
 	for id, p := range probs {
@@ -190,10 +197,13 @@ func (h *TagHandler) pick(ctx context.Context, text string, tasks []services.Tas
 		}
 	}
 	log.Printf("[wa] prism: top=%s p=%.2f (threshold %.2f)", best, bp, h.Threshold)
-	if best == optNone || bp < h.Threshold {
-		return ""
+	switch {
+	case bp < h.Threshold || best == optNone:
+		return decision{kind: kindNew}
+	case best == optNotTask:
+		return decision{kind: kindNotTask}
 	}
-	return best
+	return decision{kind: kindExisting, taskID: best}
 }
 
 // fallbackTitle is used when the naming model fails: the first few words of the message.

@@ -30,8 +30,8 @@ RETURNING *;
 UPDATE tasks SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?;
 
 -- name: CreateReport :one
-INSERT INTO reports (id, task_id, group_id, reporter_member_id, message_id, message_text, assigned_by_member_id)
-VALUES (?, ?, ?, ?, ?, ?, ?)
+INSERT INTO reports (id, task_id, group_id, reporter_member_id, message_id, message_text, assigned_by_member_id, tag_message_id)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: GetReport :one
@@ -94,5 +94,6 @@ LIMIT ?;
 -- name: GetReportByMessage :one
 SELECT r.* FROM reports r
 JOIN tasks t ON t.id = r.task_id
-WHERE t.project_id = ? AND r.group_id = ? AND r.message_id = ?
+WHERE t.project_id = sqlc.arg('project_id') AND r.group_id = sqlc.arg('group_id')
+  AND (r.message_id = sqlc.arg('message_id') OR r.tag_message_id = sqlc.arg('message_id'))
 LIMIT 1;

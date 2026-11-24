@@ -20,6 +20,7 @@ CREATE TABLE reports (
     reporter_member_id    TEXT REFERENCES wa_group_members(id) ON DELETE SET NULL,
     message_id            TEXT NOT NULL DEFAULT '', -- WhatsApp message id
     message_text          TEXT NOT NULL DEFAULT '', -- snapshot of the message
+    tag_message_id        TEXT NOT NULL DEFAULT '', -- the WhatsApp message that tagged the bot (replying to it also works)
     assigned_by_member_id TEXT REFERENCES wa_group_members(id) ON DELETE SET NULL, -- who tagged the bot
     status                TEXT NOT NULL DEFAULT 'todo' CHECK (status IN ('todo', 'done')),
     closed_by_member_id   TEXT REFERENCES wa_group_members(id) ON DELETE SET NULL,

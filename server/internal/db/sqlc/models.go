@@ -71,6 +71,7 @@ type Report struct {
 	ReporterMemberID   *string    `json:"reporter_member_id"`
 	MessageID          string     `json:"message_id"`
 	MessageText        string     `json:"message_text"`
+	TagMessageID       string     `json:"tag_message_id"`
 	AssignedByMemberID *string    `json:"assigned_by_member_id"`
 	Status             string     `json:"status"`
 	ClosedByMemberID   *string    `json:"closed_by_member_id"`

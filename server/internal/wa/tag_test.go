@@ -38,14 +38,18 @@ func (f *fakeStore) Close(_ context.Context, _ services.TagContext, in services.
 }
 
 type fakeAI struct {
-	probs map[string]float64
-	err   error
+	probs     map[string]float64
+	err       error
+	nameCalls *int
 }
 
 func (f fakeAI) Choose(context.Context, string, string, []sarvam.Option) (map[string]float64, error) {
 	return f.probs, f.err
 }
 func (f fakeAI) Name(context.Context, string) (sarvam.Naming, error) {
+	if f.nameCalls != nil {
+		*f.nameCalls++
+	}
 	return sarvam.Naming{Title: "Water leak", Description: "A leak."}, nil
 }
 
@@ -132,5 +136,53 @@ func TestNotAllowedAndStandalone(t *testing.T) {
 	h.Handle(context.Background(), Message{Text: "@botty add", Mentioned: true, Reply: func(context.Context, string) error { replied = true; return nil }})
 	if replied {
 		t.Fatal("standalone tags are ignored for now")
+	}
+}
+
+type panicAI struct{}
+
+func (panicAI) Choose(context.Context, string, string, []sarvam.Option) (map[string]float64, error) {
+	panic("the model must not see untagged messages")
+}
+func (panicAI) Name(context.Context, string) (sarvam.Naming, error) {
+	panic("the model must not see untagged messages")
+}
+
+// Only messages that tag the bot (real mention or "@botty") may reach Sarvam.
+func TestUntaggedMessagesNeverReachTheModel(t *testing.T) {
+	h := &TagHandler{Store: &fakeStore{tasks: tasks}, AI: panicAI{}, Threshold: 0.6, MaxTasks: 50}
+	reply := func(context.Context, string) error { t.Fatal("must not reply"); return nil }
+	for _, text := range []string{"paani leak ho raha hai", "done", "fixed ✅", "add this please", "botty done"} {
+		h.Handle(context.Background(), Message{SenderIDs: []string{"s"}, Text: text, QuotedID: "q1", QuotedText: "leak", Reply: reply})
+	}
+	// tagged but not allowed: still must not reach the model
+	deny := &TagHandler{Store: &fakeStore{authErr: services.Forbidden("x")}, AI: panicAI{}, Threshold: 0.6, MaxTasks: 50}
+	deny.Handle(context.Background(), Message{SenderIDs: []string{"s"}, Text: "@botty add", Mentioned: true, QuotedID: "q1", QuotedText: "leak", Reply: func(context.Context, string) error { return nil }})
+}
+
+func TestNotATaskSkipsNamingAndCreatesNothing(t *testing.T) {
+	st, calls := &fakeStore{tasks: tasks}, 0
+	h := &TagHandler{Store: st, AI: fakeAI{probs: map[string]float64{"t1": 0.05, "t2": 0.05, optNone: 0.1, optNotTask: 0.8}, nameCalls: &calls}, Threshold: 0.6, MaxTasks: 50}
+	if r := run(h, "@botty add"); !strings.Contains(r, "not a task") {
+		t.Fatalf("reply %q", r)
+	}
+	if st.created != nil || calls != 0 {
+		t.Fatalf("created=%v nameCalls=%d, want nothing", st.created, calls)
+	}
+}
+
+func TestNamingOnlyWhenNewTaskIsMade(t *testing.T) {
+	// matches an existing task: no naming call
+	st, calls := &fakeStore{tasks: tasks}, 0
+	h := &TagHandler{Store: st, AI: fakeAI{probs: map[string]float64{"t1": 0.9, "t2": 0.05, optNone: 0.03, optNotTask: 0.02}, nameCalls: &calls}, Threshold: 0.6, MaxTasks: 50}
+	run(h, "@botty add")
+	if calls != 0 {
+		t.Fatalf("naming called %d times for an existing-task match", calls)
+	}
+	// new task: exactly one naming call
+	h.AI = fakeAI{probs: map[string]float64{"t1": 0.1, "t2": 0.1, optNone: 0.7, optNotTask: 0.1}, nameCalls: &calls}
+	run(h, "@botty add")
+	if calls != 1 {
+		t.Fatalf("naming called %d times for a new task, want 1", calls)
 	}
 }

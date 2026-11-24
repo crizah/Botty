@@ -128,7 +128,7 @@ func (r *Router) Dispatch(cli *whatsmeow.Client, e *events.Message) {
 			}
 		}
 	}
-	chat, callID, callSender, callMsg := e.Info.Chat, e.Info.ID, e.Info.Sender.String(), e.Message
+	chat, callID, callSender, callMsg := e.Info.Chat, e.Info.ID, e.Info.Sender.ToNonAD().String(), e.Message
 	m.Reply = func(ctx context.Context, text string) error {
 		// a real WhatsApp reply: quotes the message that called the bot
 		_, err := cli.SendMessage(ctx, chat, &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{

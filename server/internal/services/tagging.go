@@ -77,6 +77,7 @@ type TagInput struct {
 	NewDesc      string
 	MessageID    string
 	MessageText  string
+	TagMessageID string   // the message that tagged the bot; replying to it later also finds this report
 	ReporterWaID []string // who wrote the quoted message (any of their IDs)
 }
 
@@ -123,7 +124,7 @@ func (s *TagService) Create(ctx context.Context, tc TagContext, in TagInput) (Ta
 		}
 		rep, err := q.CreateReport(ctx, db.CreateReportParams{
 			ID: newID(), TaskID: t.ID, GroupID: &tc.GroupID, ReporterMemberID: s.reporterID(ctx, q, tc, in.ReporterWaID),
-			MessageID: in.MessageID, MessageText: in.MessageText, AssignedByMemberID: &tc.MemberID,
+			MessageID: in.MessageID, MessageText: in.MessageText, AssignedByMemberID: &tc.MemberID, TagMessageID: in.TagMessageID,
 		})
 		if err != nil {
 			return err
@@ -162,7 +163,7 @@ func (s *TagService) Close(ctx context.Context, tc TagContext, in TagInput) (Tag
 			}
 			if rep, err = q.CreateReport(ctx, db.CreateReportParams{
 				ID: newID(), TaskID: t.ID, GroupID: &tc.GroupID, ReporterMemberID: s.reporterID(ctx, q, tc, in.ReporterWaID),
-				MessageID: in.MessageID, MessageText: in.MessageText, AssignedByMemberID: &tc.MemberID,
+				MessageID: in.MessageID, MessageText: in.MessageText, AssignedByMemberID: &tc.MemberID, TagMessageID: in.TagMessageID,
 			}); err != nil {
 				return err
 			}
