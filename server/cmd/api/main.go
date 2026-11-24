@@ -17,6 +17,7 @@ import (
 	"server/internal/handlers"
 	"server/internal/ingest"
 	"server/internal/middleware"
+	"server/internal/sarvam"
 	"server/internal/services"
 	"server/internal/wa"
 )
@@ -43,7 +44,19 @@ func main() {
 
 	if cfg.WAEnabled {
 		keeper := wa.NewKeeper(services.NewGroupService(conn, cfg.BotNumber, cfg.DevMode))
-		waClient := wa.New(cfg.WASessionDB, wa.Chain{wa.NewLinkHandler(services.NewClaimService(conn), keeper), keeper}, keeper, cfg.WAWorkers)
+		chain := wa.Chain{wa.NewLinkHandler(services.NewClaimService(conn), keeper)}
+		if cfg.SarvamKey != "" {
+			chain = append(chain, &wa.TagHandler{
+				Store:     services.NewTagService(conn),
+				AI:        sarvam.New(cfg.SarvamKey, cfg.SarvamURL, cfg.NamingModel),
+				Threshold: cfg.MatchThreshold,
+				MaxTasks:  cfg.TagMaxTasks,
+			})
+		} else {
+			log.Println("[wa] SARVAM_API_KEY not set - tagging the bot to make/close tasks is disabled")
+		}
+		chain = append(chain, keeper)
+		waClient := wa.New(cfg.WASessionDB, chain, keeper, cfg.WAWorkers)
 		go func() {
 			if err := waClient.Run(ctx); err != nil {
 				log.Printf("[wa] stopped: %v", err)

@@ -87,13 +87,11 @@ func (k *Keeper) Handle(ctx context.Context, m Message) {
 	if !ok {
 		return
 	}
-	ids := []string{m.SenderJID}
-	if m.SenderAlt != "" && m.SenderAlt != "<nil>" {
-		ids = append(ids, m.SenderAlt)
-	}
+	ids := m.SenderIDs
 	if known, err := k.Store.HasMember(ctx, id, ids...); err != nil || known {
 		return
 	}
+	log.Printf("[wa] sender not in member list, re-syncing (sender IDs: %v)", ids)
 	k.mu.Lock()
 	recent := time.Since(k.lastAt[m.GroupJID]) < resyncCooldown
 	k.mu.Unlock()

@@ -177,6 +177,41 @@ func (q *Queries) GetReport(ctx context.Context, id string) (Report, error) {
 	return i, err
 }
 
+const getReportByMessage = `-- name: GetReportByMessage :one
+SELECT r.id, r.task_id, r.group_id, r.reporter_member_id, r.message_id, r.message_text, r.assigned_by_member_id, r.status, r.closed_by_member_id, r.closed_by_user_id, r.closed_via, r.closed_at, r.created_at, r.updated_at FROM reports r
+JOIN tasks t ON t.id = r.task_id
+WHERE t.project_id = ? AND r.group_id = ? AND r.message_id = ?
+LIMIT 1
+`
+
+type GetReportByMessageParams struct {
+	ProjectID string  `json:"project_id"`
+	GroupID   *string `json:"group_id"`
+	MessageID string  `json:"message_id"`
+}
+
+func (q *Queries) GetReportByMessage(ctx context.Context, arg GetReportByMessageParams) (Report, error) {
+	row := q.db.QueryRowContext(ctx, getReportByMessage, arg.ProjectID, arg.GroupID, arg.MessageID)
+	var i Report
+	err := row.Scan(
+		&i.ID,
+		&i.TaskID,
+		&i.GroupID,
+		&i.ReporterMemberID,
+		&i.MessageID,
+		&i.MessageText,
+		&i.AssignedByMemberID,
+		&i.Status,
+		&i.ClosedByMemberID,
+		&i.ClosedByUserID,
+		&i.ClosedVia,
+		&i.ClosedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getTask = `-- name: GetTask :one
 SELECT id, project_id, number, title, description, status, created_by_user_id, created_at, updated_at FROM tasks WHERE id = ?
 `
@@ -234,6 +269,53 @@ func (q *Queries) ListCommentsByTask(ctx context.Context, taskID string) ([]List
 			&i.Body,
 			&i.CreatedAt,
 			&i.AuthorName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listOpenTasks = `-- name: ListOpenTasks :many
+SELECT id, number, title, description FROM tasks
+WHERE project_id = ? AND status = 'todo'
+ORDER BY updated_at DESC, number DESC
+LIMIT ?
+`
+
+type ListOpenTasksParams struct {
+	ProjectID string `json:"project_id"`
+	Limit     int64  `json:"limit"`
+}
+
+type ListOpenTasksRow struct {
+	ID          string `json:"id"`
+	Number      int64  `json:"number"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+}
+
+func (q *Queries) ListOpenTasks(ctx context.Context, arg ListOpenTasksParams) ([]ListOpenTasksRow, error) {
+	rows, err := q.db.QueryContext(ctx, listOpenTasks, arg.ProjectID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListOpenTasksRow
+	for rows.Next() {
+		var i ListOpenTasksRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Number,
+			&i.Title,
+			&i.Description,
 		); err != nil {
 			return nil, err
 		}

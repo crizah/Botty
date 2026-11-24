@@ -126,6 +126,43 @@ func (q *Queries) DeleteAllowlistForLeavers(ctx context.Context, arg DeleteAllow
 	return err
 }
 
+const getActiveMemberByWaIDs = `-- name: GetActiveMemberByWaIDs :one
+SELECT id, group_id, wa_id, phone, push_name, left_at, created_at FROM wa_group_members
+WHERE group_id = ?1 AND left_at IS NULL AND wa_id IN (/*SLICE:ids*/?)
+LIMIT 1
+`
+
+type GetActiveMemberByWaIDsParams struct {
+	GroupID string   `json:"group_id"`
+	Ids     []string `json:"ids"`
+}
+
+func (q *Queries) GetActiveMemberByWaIDs(ctx context.Context, arg GetActiveMemberByWaIDsParams) (WaGroupMember, error) {
+	query := getActiveMemberByWaIDs
+	var queryParams []interface{}
+	queryParams = append(queryParams, arg.GroupID)
+	if len(arg.Ids) > 0 {
+		for _, v := range arg.Ids {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:ids*/?", strings.Repeat(",?", len(arg.Ids))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:ids*/?", "NULL", 1)
+	}
+	row := q.db.QueryRowContext(ctx, query, queryParams...)
+	var i WaGroupMember
+	err := row.Scan(
+		&i.ID,
+		&i.GroupID,
+		&i.WaID,
+		&i.Phone,
+		&i.PushName,
+		&i.LeftAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getGroup = `-- name: GetGroup :one
 SELECT id, jid, name, owner_user_id, created_at FROM wa_groups WHERE id = ?
 `

@@ -11,32 +11,42 @@ import (
 )
 
 type Config struct {
-	Port          string
-	FrontendURL   string
-	AllowedOrigin map[string]bool // CORS allow list; the frontend URL is allowed by default
-	JWTSecret     []byte
-	DBPath        string
-	BotNumber     string // the WhatsApp number users add to their groups
-	CookieSecure  bool
-	DevMode       bool   // enables dev-only endpoints (simulate a group without WhatsApp)
-	WAEnabled     bool   // connect to WhatsApp (prints a QR on first run)
-	WASessionDB   string // whatsmeow's own session store; keep on a persistent volume
-	WAWorkers     int    // message workers; a group always maps to the same one
+	Port           string
+	FrontendURL    string
+	AllowedOrigin  map[string]bool // CORS allow list; the frontend URL is allowed by default
+	JWTSecret      []byte
+	DBPath         string
+	BotNumber      string // the WhatsApp number users add to their groups
+	CookieSecure   bool
+	DevMode        bool   // enables dev-only endpoints (simulate a group without WhatsApp)
+	WAEnabled      bool   // connect to WhatsApp (prints a QR on first run)
+	WASessionDB    string // whatsmeow's own session store; keep on a persistent volume
+	WAWorkers      int    // message workers; a group always maps to the same one
+	SarvamKey      string // API key for Prism + the naming model; tag handling is off without it
+	SarvamURL      string
+	NamingModel    string  // the small chat model that names new tasks
+	MatchThreshold float64 // min Prism probability to file under an existing task
+	TagMaxTasks    int     // how many recent open tasks are offered to the classifier
 }
 
 func Load() Config {
 	_ = godotenv.Load() // .env is optional; real env vars win
 
 	cfg := Config{
-		Port:         get("PORT", "8081"),
-		FrontendURL:  get("FRONTEND_URL", "http://localhost:3000"),
-		DBPath:       get("DB_PATH", "internal/db/.data/botty.db"),
-		BotNumber:    get("BOT_WHATSAPP_NUMBER", "+00 00000 00000"), // TODO: change - set the real bot number in .env
-		CookieSecure: get("COOKIE_SECURE", "false") == "true",
-		DevMode:      get("DEV_MODE", "false") == "true",
-		WAEnabled:    get("WA_ENABLED", "false") == "true",
-		WASessionDB:  get("WA_SESSION_DB", "internal/db/.data/whatsapp.db"),
-		WAWorkers:    atoi(get("WA_WORKERS", "8"), 8),
+		Port:           get("PORT", "8081"),
+		FrontendURL:    get("FRONTEND_URL", "http://localhost:3000"),
+		DBPath:         get("DB_PATH", "internal/db/.data/botty.db"),
+		BotNumber:      get("BOT_WHATSAPP_NUMBER", "+00 00000 00000"), // TODO: change - set the real bot number in .env
+		CookieSecure:   get("COOKIE_SECURE", "false") == "true",
+		DevMode:        get("DEV_MODE", "false") == "true",
+		WAEnabled:      get("WA_ENABLED", "false") == "true",
+		WASessionDB:    get("WA_SESSION_DB", "internal/db/.data/whatsapp.db"),
+		WAWorkers:      atoi(get("WA_WORKERS", "8"), 8),
+		SarvamKey:      os.Getenv("SARVAM_API_KEY"),
+		SarvamURL:      get("SARVAM_BASE_URL", "https://api.sarvam.ai"),
+		NamingModel:    get("SARVAM_NAMING_MODEL", "sarvam-105b-conversations"),
+		MatchThreshold: atof(get("TAG_MATCH_THRESHOLD", "0.6"), 0.6), // TODO: change - tune on real scores
+		TagMaxTasks:    atoi(get("TAG_MAX_TASKS", "50"), 50),
 	}
 
 	secret := os.Getenv("JWT_SECRET")
@@ -67,6 +77,13 @@ func get(key, fallback string) string {
 func atoi(s string, def int) int {
 	if n, err := strconv.Atoi(s); err == nil && n > 0 {
 		return n
+	}
+	return def
+}
+
+func atof(s string, def float64) float64 {
+	if f, err := strconv.ParseFloat(s, 64); err == nil && f > 0 && f < 1 {
+		return f
 	}
 	return def
 }

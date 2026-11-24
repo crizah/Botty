@@ -17,6 +17,7 @@ export default function Board() {
   const [tasks, setTasks] = useState(null);
   const [error, setError] = useState('');
   const [adding, setAdding] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
 
@@ -30,6 +31,13 @@ export default function Board() {
   }, [id]);
 
   useEffect(() => { load(); }, [load]);
+
+  const refresh = async () => {
+    setRefreshing(true);
+    setError('');
+    await load();
+    setRefreshing(false);
+  };
 
   const create = async (e) => {
     e.preventDefault();
@@ -50,7 +58,10 @@ export default function Board() {
     <>
       <div className="row between mb">
         <h2>Tasks</h2>
-        {canWrite && <button className="btn" onClick={() => setAdding((a) => !a)}>{adding ? 'Cancel' : 'New task'}</button>}
+        <div className="row">
+          <button className="btn" onClick={refresh} disabled={refreshing}>{refreshing ? 'Refreshing…' : 'Refresh'}</button>
+          {canWrite && <button className="btn" onClick={() => setAdding((a) => !a)}>{adding ? 'Cancel' : 'New task'}</button>}
+        </div>
       </div>
       <ErrorBox error={error} />
 
@@ -87,6 +98,7 @@ export default function Board() {
                         <span className={`tag ${t.status}`}>{t.status}</span>
                       </div>
                       <h3 className="mt">{t.title}</h3>
+                      {t.description && <p className="small task-desc">{t.description}</p>}
                       {t.report_count > 0 ? (
                         <>
                           <div className="progress" title={`${t.done_count} of ${t.report_count} reports done`}>

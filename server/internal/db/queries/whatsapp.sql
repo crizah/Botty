@@ -69,3 +69,8 @@ WHERE member_id IN (
     SELECT m.id FROM wa_group_members m
     WHERE m.group_id = sqlc.arg('group_id') AND m.left_at IS NULL AND m.wa_id NOT IN (sqlc.slice('keep'))
 );
+
+-- name: GetActiveMemberByWaIDs :one
+SELECT * FROM wa_group_members
+WHERE group_id = sqlc.arg('group_id') AND left_at IS NULL AND wa_id IN (sqlc.slice('ids'))
+LIMIT 1;

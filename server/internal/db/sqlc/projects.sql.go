@@ -120,6 +120,17 @@ func (q *Queries) GetProject(ctx context.Context, id string) (Project, error) {
 	return i, err
 }
 
+const getProjectIDForGroup = `-- name: GetProjectIDForGroup :one
+SELECT project_id FROM project_groups WHERE group_id = ?
+`
+
+func (q *Queries) GetProjectIDForGroup(ctx context.Context, groupID string) (string, error) {
+	row := q.db.QueryRowContext(ctx, getProjectIDForGroup, groupID)
+	var project_id string
+	err := row.Scan(&project_id)
+	return project_id, err
+}
+
 const getProjectRole = `-- name: GetProjectRole :one
 SELECT role FROM project_members WHERE project_id = ? AND user_id = ?
 `
@@ -134,6 +145,23 @@ func (q *Queries) GetProjectRole(ctx context.Context, arg GetProjectRoleParams) 
 	var role string
 	err := row.Scan(&role)
 	return role, err
+}
+
+const isAllowlisted = `-- name: IsAllowlisted :one
+SELECT COUNT(*) FROM tag_allowlist WHERE project_id = ? AND group_id = ? AND member_id = ?
+`
+
+type IsAllowlistedParams struct {
+	ProjectID string `json:"project_id"`
+	GroupID   string `json:"group_id"`
+	MemberID  string `json:"member_id"`
+}
+
+func (q *Queries) IsAllowlisted(ctx context.Context, arg IsAllowlistedParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, isAllowlisted, arg.ProjectID, arg.GroupID, arg.MemberID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
 }
 
 const isGroupInProject = `-- name: IsGroupInProject :one

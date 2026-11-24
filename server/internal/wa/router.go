@@ -16,15 +16,18 @@ import (
 
 // Message is the trimmed-down group message the rest of the app deals with.
 type Message struct {
-	ID        string
-	GroupJID  string
-	SenderJID string // may be a LID
-	SenderAlt string // the phone-number JID when SenderJID is a LID (and vice versa), if known
-	PushName  string
-	Text      string
-	QuotedID  string // message this one replies to
-	Mentioned bool   // the bot itself is @mentioned
-	Time      time.Time
+	ID           string
+	GroupJID     string
+	SenderJID    string   // may be a LID
+	SenderAlt    string   // the phone-number JID when SenderJID is a LID (and vice versa), if known
+	SenderIDs    []string // every form of the sender ID we can work out (LID and phone JID)
+	PushName     string
+	Text         string
+	QuotedID     string // message this one replies to
+	QuotedText   string // text of that message (empty for media without a caption)
+	QuotedSender string // who wrote it (JID or LID)
+	Mentioned    bool   // the bot itself is @mentioned
+	Time         time.Time
 
 	// set by the router so handlers can answer without knowing about whatsmeow
 	Reply     func(ctx context.Context, text string) error
@@ -109,6 +112,7 @@ func (r *Router) Dispatch(cli *whatsmeow.Client, e *events.Message) {
 		PushName:  e.Info.PushName,
 		Time:      e.Info.Timestamp,
 	}
+	m.SenderIDs = senderIDs(cli, e)
 	if e.Message.GetConversation() != "" {
 		m.Text = e.Message.GetConversation()
 	}
@@ -116,15 +120,25 @@ func (r *Router) Dispatch(cli *whatsmeow.Client, e *events.Message) {
 		m.Text = x.GetText()
 		ci := x.GetContextInfo()
 		m.QuotedID = ci.GetStanzaID()
+		m.QuotedSender = ci.GetParticipant()
+		m.QuotedText = quotedText(ci.GetQuotedMessage())
 		for _, jid := range ci.GetMentionedJID() {
 			if isBot(cli, jid) {
 				m.Mentioned = true
 			}
 		}
 	}
-	chat := e.Info.Chat
+	chat, callID, callSender, callMsg := e.Info.Chat, e.Info.ID, e.Info.Sender.String(), e.Message
 	m.Reply = func(ctx context.Context, text string) error {
-		_, err := cli.SendMessage(ctx, chat, &waE2E.Message{Conversation: proto.String(text)})
+		// a real WhatsApp reply: quotes the message that called the bot
+		_, err := cli.SendMessage(ctx, chat, &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{
+			Text: proto.String(text),
+			ContextInfo: &waE2E.ContextInfo{
+				StanzaID:      proto.String(callID),
+				Participant:   proto.String(callSender),
+				QuotedMessage: callMsg,
+			},
+		}})
 		return err
 	}
 	m.GroupName = func(ctx context.Context) string {
@@ -216,4 +230,47 @@ func firstNonEmptyStr(ss ...string) string {
 		}
 	}
 	return ""
+}
+
+func quotedText(q *waE2E.Message) string {
+	switch {
+	case q.GetConversation() != "":
+		return q.GetConversation()
+	case q.GetExtendedTextMessage().GetText() != "":
+		return q.GetExtendedTextMessage().GetText()
+	case q.GetImageMessage().GetCaption() != "":
+		return q.GetImageMessage().GetCaption()
+	case q.GetVideoMessage().GetCaption() != "":
+		return q.GetVideoMessage().GetCaption()
+	}
+	return ""
+}
+
+// senderIDs returns every form of the sender's ID we can find (LID and phone JID), because a
+// client can send in either form and group members are stored under whichever WhatsApp gave us.
+func senderIDs(cli *whatsmeow.Client, e *events.Message) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(j types.JID) {
+		if s := j.ToNonAD().String(); !j.IsEmpty() && !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	add(e.Info.Sender)
+	add(e.Info.SenderAlt)
+	ctx := context.Background()
+	for _, j := range []types.JID{e.Info.Sender, e.Info.SenderAlt} {
+		switch j.Server {
+		case types.HiddenUserServer:
+			if pn, err := cli.Store.LIDs.GetPNForLID(ctx, j.ToNonAD()); err == nil {
+				add(pn)
+			}
+		case types.DefaultUserServer:
+			if lid, err := cli.Store.LIDs.GetLIDForPN(ctx, j.ToNonAD()); err == nil {
+				add(lid)
+			}
+		}
+	}
+	return out
 }

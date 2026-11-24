@@ -84,3 +84,15 @@ FROM comments c
 LEFT JOIN users u ON u.id = c.author_user_id
 WHERE c.task_id = ?
 ORDER BY c.created_at, c.id;
+
+-- name: ListOpenTasks :many
+SELECT id, number, title, description FROM tasks
+WHERE project_id = ? AND status = 'todo'
+ORDER BY updated_at DESC, number DESC
+LIMIT ?;
+
+-- name: GetReportByMessage :one
+SELECT r.* FROM reports r
+JOIN tasks t ON t.id = r.task_id
+WHERE t.project_id = ? AND r.group_id = ? AND r.message_id = ?
+LIMIT 1;

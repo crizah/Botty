@@ -150,3 +150,12 @@ hr.dashed { border-top-style: dashed; }
 .audit li { padding: 7px 0; border-bottom: 1px dashed var(--white); }
 .audit li:last-child { border-bottom: 0; }
 .comment { border-left: 3px solid var(--white); padding: 2px 0 2px 10px; }
+
+/* two-line preview of a task description on board cards */
+.task-desc {
+  margin-top: 4px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
