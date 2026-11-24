@@ -40,14 +40,33 @@ func (f *fakeStore) Close(_ context.Context, _ services.TagContext, in services.
 }
 
 type fakeAI struct {
-	probs     map[string]float64
-	seq       []map[string]float64 // if set, successive Choose calls return these in order
-	calls     *int
-	err       error
-	nameCalls *int
+	probs       map[string]float64
+	seq         []map[string]float64 // if set, successive Choose calls return these in order
+	calls       *int
+	finished    bool // the intent call answers DONE
+	invalid     bool // the intent call answers INVALID
+	intentErr   error
+	intentState *string // records what text the intent call was given
+	err         error
+	nameCalls   *int
 }
 
-func (f fakeAI) Choose(context.Context, string, string, []sarvam.Option) (map[string]float64, error) {
+func (f fakeAI) Choose(_ context.Context, state, _ string, opts []sarvam.Option) (map[string]float64, error) {
+	if len(opts) == 3 && opts[0].ID == optCreate { // the intent call
+		if f.intentState != nil {
+			*f.intentState = state
+		}
+		if f.intentErr != nil {
+			return nil, f.intentErr
+		}
+		switch {
+		case f.invalid:
+			return map[string]float64{optCreate: 0.1, optFinished: 0.1, optInvalid: 0.8}, nil
+		case f.finished:
+			return map[string]float64{optCreate: 0.1, optFinished: 0.8, optInvalid: 0.1}, nil
+		}
+		return map[string]float64{optCreate: 0.8, optFinished: 0.1, optInvalid: 0.1}, nil
+	}
 	if f.seq != nil {
 		i := *f.calls
 		*f.calls++
@@ -72,19 +91,6 @@ func run(h *TagHandler, text string) string {
 }
 
 var tasks = []services.TaskCandidate{{ID: "t1", Number: 1, Title: "Water leak"}, {ID: "t2", Number: 2, Title: "Wifi down"}}
-
-func TestIsDone(t *testing.T) {
-	for _, s := range []string{"@botty done", "@botty fixed ✅", "@botty ho gaya", "@botty kar diya", "resolved"} {
-		if !isDone(s) {
-			t.Errorf("%q should be done", s)
-		}
-	}
-	for _, s := range []string{"@botty add this", "@botty on it", "@botty please track", "@donetsk hi"} {
-		if isDone(s) {
-			t.Errorf("%q should be create", s)
-		}
-	}
-}
 
 func TestCreateNewWhenLowConfidence(t *testing.T) {
 	st := &fakeStore{tasks: tasks}
@@ -118,7 +124,7 @@ func TestPrismErrorFallsBackToNewTask(t *testing.T) {
 
 func TestDoneLowConfidenceDoesNotCreate(t *testing.T) {
 	st := &fakeStore{tasks: tasks}
-	h := &TagHandler{Store: st, AI: fakeAI{probs: map[string]float64{"t1": 0.3, "t2": 0.2, optNone: 0.5}}, Threshold: 0.6, MaxTasks: 50}
+	h := &TagHandler{Store: st, AI: fakeAI{finished: true, probs: map[string]float64{"t1": 0.3, "t2": 0.2, optNone: 0.5}}, Threshold: 0.6, MaxTasks: 50}
 	if r := run(h, "@botty done"); !strings.Contains(r, "couldn't tell") {
 		t.Fatalf("reply %q", r)
 	}
@@ -127,9 +133,9 @@ func TestDoneLowConfidenceDoesNotCreate(t *testing.T) {
 	}
 }
 
-func TestDoneOnExistingReportSkipsModel(t *testing.T) {
+func TestDoneOnExistingReportSkipsTaskClassifier(t *testing.T) {
 	st := &fakeStore{existing: true}
-	h := &TagHandler{Store: st, AI: fakeAI{err: errors.New("must not be called")}, Threshold: 0.6, MaxTasks: 50}
+	h := &TagHandler{Store: st, AI: fakeAI{finished: true, err: errors.New("task classifier must not be called")}, Threshold: 0.6, MaxTasks: 50}
 	if r := run(h, "@botty done"); r != "done" {
 		t.Fatalf("reply %q", r)
 	}
@@ -300,5 +306,58 @@ func TestStripBotMention(t *testing.T) {
 		if got := stripBotMention(in); got != want {
 			t.Errorf("%q -> %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestIntentSeesOnlyTheReplyText(t *testing.T) {
+	var seen string
+	st := &fakeStore{tasks: tasks}
+	h := &TagHandler{Store: st, AI: fakeAI{intentState: &seen, probs: map[string]float64{optNone: 1}}, Threshold: 0.6, DupThreshold: 0.7, MaxTasks: 50}
+	run(h, "@botty on it") // the quoted message is "paani leak ho raha hai"
+	if seen != "on it" {
+		t.Fatalf("intent call was given %q, want only the reply text without the mention or quoted message", seen)
+	}
+}
+
+func TestIntentCanSayFinishedForPhrasesNoKeywordListHas(t *testing.T) {
+	st := &fakeStore{existing: true}
+	h := &TagHandler{Store: st, AI: fakeAI{finished: true}, Threshold: 0.6, MaxTasks: 50}
+	if r := run(h, "@botty all good now"); r != "done" || st.closed == nil || st.created != nil {
+		t.Fatalf("reply=%q closed=%v created=%v", r, st.closed, st.created)
+	}
+}
+
+func TestIntentFailureDoesNothing(t *testing.T) {
+	st := &fakeStore{tasks: tasks, existing: true}
+	h := &TagHandler{Store: st, AI: fakeAI{intentErr: errors.New("boom")}, Threshold: 0.6, MaxTasks: 50}
+	if r := run(h, "@botty done"); !strings.Contains(r, "went wrong") || st.created != nil || st.closed != nil {
+		t.Fatalf("reply=%q created=%v closed=%v", r, st.created, st.closed)
+	}
+}
+
+func TestBareReplyTagCreatesWithoutAnIntentCall(t *testing.T) {
+	st := &fakeStore{tasks: tasks}
+	h := &TagHandler{Store: st, AI: fakeAI{intentErr: errors.New("must not be called"), probs: map[string]float64{optNone: 1}}, Threshold: 0.6, DupThreshold: 0.7, MaxTasks: 50}
+	if r := run(h, "@botty"); r != "done" || st.created == nil {
+		t.Fatalf("reply=%q created=%v", r, st.created)
+	}
+}
+
+func TestInvalidInstructionIsRefusedAndNothingIsSaved(t *testing.T) {
+	st := &fakeStore{tasks: tasks}
+	h := &TagHandler{Store: st, AI: fakeAI{invalid: true, probs: map[string]float64{optNone: 1}}, Threshold: 0.6, DupThreshold: 0.7, MaxTasks: 50}
+	if r := run(h, "@botty make me a sandwich"); !strings.Contains(r, "not a valid instruction") {
+		t.Fatalf("reply %q", r)
+	}
+	if st.created != nil || st.closed != nil {
+		t.Fatal("an invalid instruction must not create or close anything")
+	}
+}
+
+func TestStandaloneTagsMakeNoIntentCall(t *testing.T) {
+	st := &fakeStore{tasks: tasks}
+	h := &TagHandler{Store: st, AI: fakeAI{intentErr: errors.New("intent must not be called"), probs: map[string]float64{optNone: 1}}, Threshold: 0.6, DupThreshold: 0.7, MaxTasks: 50}
+	if r := standalone(h, "@botty make me a sandwich"); r != "done" || st.created == nil {
+		t.Fatalf("reply=%q created=%v", r, st.created)
 	}
 }

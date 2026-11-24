@@ -32,8 +32,6 @@ type Classifier interface {
 
 var (
 	mentionTok = regexp.MustCompile(`@\S+`)
-	// TODO: change - extend these lists as real chats show what people actually write
-	doneRe = regexp.MustCompile(`(?i)\b(done|fixed|resolved|completed?|closed?|sorted|solved|finished|ho\s?gaya|ho\s?gya|hogaya|kar\s?diya|kardiya|(?:thik|theek)\s+ho\s+gaya)\b|✅`)
 )
 
 var botMention = regexp.MustCompile(`(?i)@botty\b|@\d{7,}`)
@@ -43,14 +41,14 @@ func stripBotMention(text string) string {
 	return strings.Join(strings.Fields(botMention.ReplaceAllString(text, " ")), " ")
 }
 
-// isDone: replies containing a "done"-style word close work; anything else creates.
-func isDone(text string) bool { return doneRe.MatchString(mentionTok.ReplaceAllString(text, " ")) }
-
 const (
-	optNone    = "NONE"      // doesn't match any existing task: a new request
-	optNotTask = "NOT_TASK"  // chit-chat, thanks, greetings: not a request at all
-	optDiff    = "DIFFERENT" // not the exact same message as any earlier one
-	taskTO     = 40 * time.Second
+	optNone     = "NONE"      // doesn't match any existing task: a new request
+	optNotTask  = "NOT_TASK"  // chit-chat, thanks, greetings: not a request at all
+	optDiff     = "DIFFERENT" // not the exact same message as any earlier one
+	optCreate   = "CREATE"    // intent: make a task / report from the quoted message
+	optFinished = "DONE"      // intent: the work is finished
+	optInvalid  = "INVALID"   // intent: not an instruction for the bot at all
+	taskTO      = 40 * time.Second
 )
 
 // TagHandler handles "@botty ...":
@@ -103,11 +101,55 @@ func (h *TagHandler) Handle(ctx context.Context, m Message) {
 	}
 
 	in := services.TagInput{TagMessageID: m.ID, MessageID: m.QuotedID, MessageText: m.QuotedText, ReporterWaID: ids(m.QuotedSender)}
-	if isDone(m.Text) {
+	it, err := h.intent(ctx, m.Text)
+	if err != nil {
+		log.Printf("[wa] prism (intent): %v", err)
+		_ = m.Reply(ctx, "Something went wrong. Try again.")
+		return
+	}
+	switch it {
+	case intentInvalid:
+		_ = m.Reply(ctx, "that's not a valid instruction")
+	case intentDone:
 		h.done(ctx, m, tc, in)
-	} else {
+	default:
 		h.create(ctx, m, tc, in)
 	}
+}
+
+type intentKind int
+
+const (
+	intentCreate intentKind = iota
+	intentDone
+	intentInvalid
+)
+
+// intent asks Prism what a reply tag means: create a task, finish one, or nothing the bot can act on.
+// Only the tag message's own text is sent, never the message it replies to. Standalone tags don't call this.
+func (h *TagHandler) intent(ctx context.Context, tagText string) (intentKind, error) {
+	text := stripBotMention(tagText)
+	if text == "" {
+		return intentCreate, nil // a bare "@botty" reply: nothing to read, so it creates
+	}
+	probs, err := h.AI.Choose(ctx, text,
+		"This is a short message sent to a task-tracking bot as a reply to someone else's message. What is the sender asking the bot to do?",
+		[]sarvam.Option{
+			{ID: optCreate, Text: "Create or track a task from that message: add this, on it, noted, will do, I'll look into it, please handle this"},
+			{ID: optFinished, Text: "Say the work is finished: done, fixed, resolved, completed, sorted, closed, ho gaya, kar diya"},
+			{ID: optInvalid, Text: "Not a valid instruction for a task bot: a joke, a random request, chit-chat, or something unrelated to tasks"},
+		})
+	if err != nil {
+		return intentCreate, err
+	}
+	log.Printf("[wa] prism (intent): create=%.2f done=%.2f invalid=%.2f", probs[optCreate], probs[optFinished], probs[optInvalid])
+	switch {
+	case probs[optInvalid] > probs[optCreate] && probs[optInvalid] > probs[optFinished]:
+		return intentInvalid, nil
+	case probs[optFinished] > probs[optCreate]:
+		return intentDone, nil
+	}
+	return intentCreate, nil
 }
 
 func (h *TagHandler) create(ctx context.Context, m Message, tc services.TagContext, in services.TagInput) {
