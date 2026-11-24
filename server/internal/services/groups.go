@@ -65,6 +65,26 @@ func (s *GroupService) DevCreate(ctx context.Context, userID string, req schemas
 	return g, err
 }
 
+// MemberSync is one group participant as discovered from WhatsApp.
+type MemberSync struct {
+	WaID     string // JID or LID, whatever WhatsApp uses as the participant's primary ID
+	Phone    string // resolved phone number, empty when WhatsApp hides it
+	PushName string
+}
+
+// SyncMembers upserts a group's participants (the WhatsApp ID -> phone/name mapping).
+// Safe to re-run: existing rows keep their data unless the new value is non-empty.
+func (s *GroupService) SyncMembers(ctx context.Context, groupID string, members []MemberSync) error {
+	return withTx(ctx, s.db, s.Queries, func(q *db.Queries) error {
+		for _, m := range members {
+			if _, err := q.UpsertMember(ctx, db.UpsertMemberParams{ID: newID(), GroupID: groupID, WaID: m.WaID, Phone: strPtr(m.Phone), PushName: strPtr(m.PushName)}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 // ---- groups inside a project ----
 
 func (s *GroupService) ListForProject(ctx context.Context, userID, projectID string) (schemas.ProjectGroupsResponse, error) {

@@ -18,6 +18,7 @@ import (
 	"server/internal/ingest"
 	"server/internal/middleware"
 	"server/internal/services"
+	"server/internal/wa"
 )
 
 func main() {
@@ -40,8 +41,17 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// stub: WhatsApp group discovery + identity mapping
-	go (&ingest.Worker{Resolver: ingest.StubResolver{}}).Run(ctx)
+	if cfg.WAEnabled {
+		waClient := wa.New(cfg.WASessionDB, wa.NewLinkHandler(services.NewClaimService(conn), services.NewGroupService(conn, cfg.BotNumber, cfg.DevMode)), cfg.WAWorkers)
+		go func() {
+			if err := waClient.Run(ctx); err != nil {
+				log.Printf("[wa] stopped: %v", err)
+			}
+		}()
+	} else {
+		// stub: WhatsApp group discovery + identity mapping (used when WA_ENABLED is off)
+		go (&ingest.Worker{Resolver: ingest.StubResolver{}}).Run(ctx)
+	}
 
 	handler := middleware.Logging(middleware.CORS(cfg.AllowedOrigin)(routes(conn, cfg)))
 	srv := &http.Server{Addr: ":" + cfg.Port, Handler: handler, ReadHeaderTimeout: 10 * time.Second}

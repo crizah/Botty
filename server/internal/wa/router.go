@@ -1,0 +1,214 @@
+package wa
+
+import (
+	"context"
+	"go.mau.fi/whatsmeow/proto/waE2E"
+	"go.mau.fi/whatsmeow/types"
+	"google.golang.org/protobuf/proto"
+	"hash/fnv"
+	"log"
+	"sync"
+	"time"
+
+	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/types/events"
+)
+
+// Message is the trimmed-down group message the rest of the app deals with.
+type Message struct {
+	ID        string
+	GroupJID  string
+	SenderJID string // may be a LID
+	SenderAlt string // the phone-number JID when SenderJID is a LID (and vice versa), if known
+	PushName  string
+	Text      string
+	QuotedID  string // message this one replies to
+	Mentioned bool   // the bot itself is @mentioned
+	Time      time.Time
+
+	// set by the router so handlers can answer without knowing about whatsmeow
+	Reply     func(ctx context.Context, text string) error
+	GroupName func(ctx context.Context) string
+	// Participants lists the group's members (excluding the bot) with phone numbers resolved where possible.
+	Participants func(ctx context.Context) ([]Participant, error)
+}
+
+// Participant is one group member as WhatsApp reports it.
+type Participant struct {
+	WaID  string // primary JID or LID
+	Phone string // "+<number>" when known
+	Name  string // push/contact name when known
+}
+
+// Handler is where message processing plugs in.
+type Handler interface {
+	Handle(ctx context.Context, m Message)
+}
+
+// Router fans messages out to N workers. A group always maps to the same worker, so one
+// group's messages are handled in order while different groups run in parallel.
+type Router struct {
+	handler Handler
+	queues  []chan Message
+
+	mu      sync.Mutex
+	seenIDs map[string]struct{}
+}
+
+// seen reports whether a message ID was already dispatched (WhatsApp can redeliver).
+// The set is bounded: it resets when it grows large, which is fine for catching close duplicates.
+func (r *Router) seen(id string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.seenIDs) > 10000 {
+		r.seenIDs = map[string]struct{}{}
+	}
+	if _, ok := r.seenIDs[id]; ok {
+		return true
+	}
+	r.seenIDs[id] = struct{}{}
+	return false
+}
+
+func NewRouter(h Handler, workers int) *Router {
+	if workers < 1 {
+		workers = 8
+	}
+	r := &Router{handler: h, queues: make([]chan Message, workers), seenIDs: map[string]struct{}{}}
+	for i := range r.queues {
+		r.queues[i] = make(chan Message, 256)
+	}
+	return r
+}
+
+func (r *Router) Start(ctx context.Context) {
+	for _, q := range r.queues {
+		go func(q chan Message) {
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case m := <-q:
+					r.handler.Handle(ctx, m)
+				}
+			}
+		}(q)
+	}
+}
+
+// Dispatch is called from the whatsmeow event handler, so it must return fast.
+func (r *Router) Dispatch(cli *whatsmeow.Client, e *events.Message) {
+	if !e.Info.IsGroup || e.Info.IsFromMe {
+		return
+	}
+	m := Message{
+		ID:        e.Info.ID,
+		GroupJID:  e.Info.Chat.String(),
+		SenderJID: e.Info.Sender.String(),
+		SenderAlt: e.Info.SenderAlt.String(),
+		PushName:  e.Info.PushName,
+		Time:      e.Info.Timestamp,
+	}
+	if e.Message.GetConversation() != "" {
+		m.Text = e.Message.GetConversation()
+	}
+	if x := e.Message.GetExtendedTextMessage(); x != nil {
+		m.Text = x.GetText()
+		ci := x.GetContextInfo()
+		m.QuotedID = ci.GetStanzaID()
+		for _, jid := range ci.GetMentionedJID() {
+			if isBot(cli, jid) {
+				m.Mentioned = true
+			}
+		}
+	}
+	chat := e.Info.Chat
+	m.Reply = func(ctx context.Context, text string) error {
+		_, err := cli.SendMessage(ctx, chat, &waE2E.Message{Conversation: proto.String(text)})
+		return err
+	}
+	m.GroupName = func(ctx context.Context) string {
+		if gi, err := cli.GetGroupInfo(ctx, chat); err == nil && gi.Name != "" {
+			return gi.Name
+		}
+		return "WhatsApp group"
+	}
+	m.Participants = func(ctx context.Context) ([]Participant, error) { return participants(ctx, cli, chat) }
+	if r.seen(m.ID) {
+		return
+	}
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(m.GroupJID))
+	q := r.queues[int(h.Sum32())%len(r.queues)]
+	select {
+	case q <- m:
+	default:
+		log.Printf("[wa] queue full, dropping message %s", m.ID) // TODO: change - decide on backpressure
+	}
+}
+
+func isBot(cli *whatsmeow.Client, jid string) bool {
+	if cli.Store.ID != nil && jid == cli.Store.ID.ToNonAD().String() {
+		return true
+	}
+	return !cli.Store.LID.IsEmpty() && jid == cli.Store.LID.ToNonAD().String()
+}
+
+// participants fetches the group's member list and maps each WhatsApp ID to a phone number and name.
+func participants(ctx context.Context, cli *whatsmeow.Client, chat types.JID) ([]Participant, error) {
+	gi, err := cli.GetGroupInfo(ctx, chat)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Participant, 0, len(gi.Participants))
+	for _, p := range gi.Participants {
+		if isBot(cli, p.JID.String()) || isBot(cli, p.PhoneNumber.String()) || isBot(cli, p.LID.String()) {
+			continue
+		}
+		pn := p.PhoneNumber
+		if pn.IsEmpty() {
+			if p.JID.Server == types.DefaultUserServer {
+				pn = p.JID
+			} else if lid := firstNonEmpty(p.LID, p.JID); lid.Server == types.HiddenUserServer {
+				if got, err := cli.Store.LIDs.GetPNForLID(ctx, lid); err == nil {
+					pn = got
+				}
+			}
+		}
+		part := Participant{WaID: p.JID.String()}
+		if !pn.IsEmpty() {
+			part.Phone = "+" + pn.User
+		}
+		for _, j := range []types.JID{pn, p.JID, p.LID} {
+			if j.IsEmpty() {
+				continue
+			}
+			if c, err := cli.Store.Contacts.GetContact(ctx, j); err == nil {
+				if name := firstNonEmptyStr(c.FullName, c.PushName, c.BusinessName); name != "" {
+					part.Name = name
+					break
+				}
+			}
+		}
+		out = append(out, part)
+	}
+	return out, nil
+}
+
+func firstNonEmpty(js ...types.JID) types.JID {
+	for _, j := range js {
+		if !j.IsEmpty() {
+			return j
+		}
+	}
+	return types.EmptyJID
+}
+
+func firstNonEmptyStr(ss ...string) string {
+	for _, s := range ss {
+		if s != "" {
+			return s
+		}
+	}
+	return ""
+}
