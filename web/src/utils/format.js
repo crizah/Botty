@@ -50,6 +50,16 @@ export function auditSentence(e) {
       return `${who} added a note ${q(e.detail)}`;
     case 'report.comment_added':
       return `${who} added a note on a report ${q(e.detail)}`;
+    case 'member.invited':
+      return `${who} invited ${e.detail} (${e.new_value === 'editor' ? 'read & write' : 'read only'})`;
+    case 'member.invite_revoked':
+      return `${who} revoked the invite for ${e.detail}`;
+    case 'member.joined':
+      return `${who} joined the project (${e.new_value === 'editor' ? 'read & write' : 'read only'})`;
+    case 'member.role_changed':
+      return `${who} changed ${e.detail} from ${e.old_value === 'editor' ? 'read & write' : 'read only'} to ${e.new_value === 'editor' ? 'read & write' : 'read only'}`;
+    case 'member.removed':
+      return `${who} removed ${e.detail} from the project`;
     default:
       return `${who} ${e.action}`;
   }

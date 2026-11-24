@@ -22,6 +22,8 @@ type Config struct {
 	WAEnabled      bool   // connect to WhatsApp (prints a QR on first run)
 	WASessionDB    string // whatsmeow's own session store; keep on a persistent volume
 	WAWorkers      int    // message workers; a group always maps to the same one
+	ResendKey      string // Resend API key for invite emails
+	MailFrom       string
 	SarvamKey      string // API key for Prism + the naming model; tag handling is off without it
 	SarvamURL      string
 	NamingModel    string  // the small chat model that names new tasks
@@ -42,6 +44,8 @@ func Load() Config {
 		WAEnabled:      get("WA_ENABLED", "false") == "true",
 		WASessionDB:    get("WA_SESSION_DB", "internal/db/.data/whatsapp.db"),
 		WAWorkers:      atoi(get("WA_WORKERS", "8"), 8),
+		ResendKey:      os.Getenv("RESEND_API_KEY"),
+		MailFrom:       get("MAIL_FROM", "Botty <noreply@crizah.space>"),
 		SarvamKey:      os.Getenv("SARVAM_API_KEY"),
 		SarvamURL:      get("SARVAM_BASE_URL", "https://api.sarvam.ai"),
 		NamingModel:    get("SARVAM_NAMING_MODEL", "sarvam-105b-conversations"),

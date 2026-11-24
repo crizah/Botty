@@ -9,6 +9,8 @@ import ProjectLayout from './pages/ProjectLayout';
 import Board from './pages/Board';
 import ProjectGroups from './pages/ProjectGroups';
 import Activity from './pages/Activity';
+import ProjectUsers from './pages/ProjectUsers';
+import InvitePage from './pages/InvitePage';
 
 export default function App() {
   return (
@@ -17,6 +19,7 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
+          <Route path="/invite" element={<InvitePage />} />
           <Route element={<Layout />}>
             <Route path="/" element={<Dashboard />} />
             <Route path="/groups" element={<Groups />} />
@@ -24,6 +27,7 @@ export default function App() {
               <Route index element={<Board />} />
               <Route path="tasks/:taskId" element={<Board />} />
               <Route path="groups" element={<ProjectGroups />} />
+              <Route path="users" element={<ProjectUsers />} />
               <Route path="activity" element={<Activity />} />
             </Route>
           </Route>

@@ -36,3 +36,18 @@ CREATE TABLE tag_allowlist (
     PRIMARY KEY (project_id, group_id, member_id),
     FOREIGN KEY (project_id, group_id) REFERENCES project_groups(project_id, group_id) ON DELETE CASCADE
 );
+
+-- Email invites to join a project. The emailed link is a signed JWT that carries only this row's id;
+-- the row decides whether it is still usable (pending, not revoked, not expired), so a link works once.
+CREATE TABLE project_invites (
+    id          TEXT NOT NULL PRIMARY KEY,
+    project_id  TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    email       TEXT NOT NULL, -- lowercased
+    role        TEXT NOT NULL CHECK (role IN ('editor', 'viewer')),
+    invited_by  TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    expires_at  DATETIME NOT NULL,
+    accepted_at DATETIME,
+    revoked_at  DATETIME,
+    created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_project_invites_project ON project_invites(project_id);

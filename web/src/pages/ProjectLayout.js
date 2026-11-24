@@ -70,6 +70,7 @@ export default function ProjectLayout() {
       <div className="tabs">
         <NavLink to={`/projects/${id}`} end className={tab}>Board</NavLink>
         <NavLink to={`/projects/${id}/groups`} className={tab}>Groups</NavLink>
+        <NavLink to={`/projects/${id}/users`} className={tab}>Users</NavLink>
         <NavLink to={`/projects/${id}/activity`} className={tab}>Activity</NavLink>
         <span className="spacer" />
         <span className="tag" title="your role in this project">{role}</span>

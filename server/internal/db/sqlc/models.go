@@ -57,6 +57,18 @@ type ProjectGroup struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+type ProjectInvite struct {
+	ID         string     `json:"id"`
+	ProjectID  string     `json:"project_id"`
+	Email      string     `json:"email"`
+	Role       string     `json:"role"`
+	InvitedBy  string     `json:"invited_by"`
+	ExpiresAt  time.Time  `json:"expires_at"`
+	AcceptedAt *time.Time `json:"accepted_at"`
+	RevokedAt  *time.Time `json:"revoked_at"`
+	CreatedAt  time.Time  `json:"created_at"`
+}
+
 type ProjectMember struct {
 	ProjectID string    `json:"project_id"`
 	UserID    string    `json:"user_id"`

@@ -9,6 +9,7 @@ import (
 )
 
 type Querier interface {
+	AcceptInvite(ctx context.Context, id string) (int64, error)
 	AddAllowlist(ctx context.Context, arg AddAllowlistParams) error
 	AddProjectMember(ctx context.Context, arg AddProjectMemberParams) error
 	AttachGroup(ctx context.Context, arg AttachGroupParams) error
@@ -19,6 +20,7 @@ type Querier interface {
 	CreateClaim(ctx context.Context, arg CreateClaimParams) (GroupClaim, error)
 	CreateComment(ctx context.Context, arg CreateCommentParams) (Comment, error)
 	CreateGroup(ctx context.Context, arg CreateGroupParams) (WaGroup, error)
+	CreateInvite(ctx context.Context, arg CreateInviteParams) (ProjectInvite, error)
 	CreateProject(ctx context.Context, arg CreateProjectParams) (Project, error)
 	CreateReport(ctx context.Context, arg CreateReportParams) (Report, error)
 	CreateTask(ctx context.Context, arg CreateTaskParams) (Task, error)
@@ -28,10 +30,13 @@ type Querier interface {
 	GetActiveMemberByWaIDs(ctx context.Context, arg GetActiveMemberByWaIDsParams) (WaGroupMember, error)
 	GetGroup(ctx context.Context, id string) (WaGroup, error)
 	GetGroupByJID(ctx context.Context, jid string) (WaGroup, error)
+	GetInvite(ctx context.Context, id string) (ProjectInvite, error)
 	GetMember(ctx context.Context, id string) (WaGroupMember, error)
 	GetOpenClaimByCode(ctx context.Context, code string) (GroupClaim, error)
+	GetOpenInvite(ctx context.Context, id string) (ProjectInvite, error)
 	GetProject(ctx context.Context, id string) (Project, error)
 	GetProjectIDForGroup(ctx context.Context, groupID string) (string, error)
+	GetProjectMember(ctx context.Context, arg GetProjectMemberParams) (ProjectMember, error)
 	GetProjectRole(ctx context.Context, arg GetProjectRoleParams) (string, error)
 	GetReport(ctx context.Context, id string) (Report, error)
 	GetReportByMessage(ctx context.Context, arg GetReportByMessageParams) (Report, error)
@@ -49,15 +54,22 @@ type Querier interface {
 	ListMembersWithoutPhone(ctx context.Context, limit int64) ([]WaGroupMember, error)
 	ListOpenClaimsForUser(ctx context.Context, userID string) ([]GroupClaim, error)
 	ListOpenTasks(ctx context.Context, arg ListOpenTasksParams) ([]ListOpenTasksRow, error)
+	ListPendingInvites(ctx context.Context, projectID string) ([]ListPendingInvitesRow, error)
 	ListProjectGroups(ctx context.Context, projectID string) ([]ListProjectGroupsRow, error)
+	ListProjectMembers(ctx context.Context, projectID string) ([]ListProjectMembersRow, error)
 	ListProjectsForUser(ctx context.Context, userID string) ([]ListProjectsForUserRow, error)
 	ListReportsByTask(ctx context.Context, taskID string) ([]ListReportsByTaskRow, error)
 	ListTasksByProject(ctx context.Context, projectID string) ([]ListTasksByProjectRow, error)
 	MarkClaimUsed(ctx context.Context, arg MarkClaimUsedParams) error
 	MarkMembersLeftExcept(ctx context.Context, arg MarkMembersLeftExceptParams) (int64, error)
 	NextTaskNumber(ctx context.Context, projectID string) (int64, error)
+	RefreshInvite(ctx context.Context, arg RefreshInviteParams) (ProjectInvite, error)
 	RemoveAllowlist(ctx context.Context, arg RemoveAllowlistParams) error
+	RemoveProjectMember(ctx context.Context, arg RemoveProjectMemberParams) (int64, error)
+	RevokeInvite(ctx context.Context, arg RevokeInviteParams) (int64, error)
+	RevokePendingInvitesForEmail(ctx context.Context, arg RevokePendingInvitesForEmailParams) error
 	SetMemberPhone(ctx context.Context, arg SetMemberPhoneParams) error
+	SetProjectMemberRole(ctx context.Context, arg SetProjectMemberRoleParams) (int64, error)
 	SetReportStatus(ctx context.Context, arg SetReportStatusParams) (Report, error)
 	SetTaskStatus(ctx context.Context, arg SetTaskStatusParams) error
 	UpdateProject(ctx context.Context, arg UpdateProjectParams) (Project, error)

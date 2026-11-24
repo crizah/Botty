@@ -16,6 +16,7 @@ import (
 	"server/internal/config"
 	"server/internal/handlers"
 	"server/internal/ingest"
+	"server/internal/mail"
 	"server/internal/middleware"
 	"server/internal/sarvam"
 	"server/internal/services"
@@ -96,6 +97,8 @@ func routes(conn *sql.DB, cfg config.Config) http.Handler {
 	authH := handlers.NewAuthHandler(authSvc, cfg.CookieSecure)
 	projectH := handlers.NewProjectHandler(projectSvc)
 	groupH := handlers.NewGroupHandler(groupSvc)
+	mailer := mail.NewResend(cfg.ResendKey, cfg.MailFrom)
+	memberH := handlers.NewMemberHandler(services.NewMemberService(conn, cfg.JWTSecret, mailer, cfg.FrontendURL))
 	claimH := handlers.NewClaimHandler(claimSvc, cfg.DevMode)
 	taskH := handlers.NewTaskHandler(taskSvc)
 
@@ -130,6 +133,16 @@ func routes(conn *sql.DB, cfg config.Config) http.Handler {
 	protected("GET /api/v1/projects/{id}", projectH.Get)
 	protected("PATCH /api/v1/projects/{id}", projectH.Update)
 	protected("GET /api/v1/projects/{id}/audit", projectH.Audit)
+
+	// project users + email invites (owner-only changes)
+	protected("GET /api/v1/projects/{id}/users", memberH.List)
+	protected("PATCH /api/v1/projects/{id}/users/{uid}", memberH.SetRole)
+	protected("DELETE /api/v1/projects/{id}/users/{uid}", memberH.Remove)
+	protected("POST /api/v1/projects/{id}/invites", memberH.Invite)
+	protected("POST /api/v1/projects/{id}/invites/{iid}/resend", memberH.Resend)
+	protected("DELETE /api/v1/projects/{id}/invites/{iid}", memberH.Revoke)
+	mux.HandleFunc("GET /api/v1/invites/preview", memberH.Preview) // public: the emailed token is the credential
+	protected("POST /api/v1/invites/accept", memberH.Accept)
 
 	// groups inside a project + tag allowlist
 	protected("GET /api/v1/projects/{id}/groups", groupH.ListForProject)
