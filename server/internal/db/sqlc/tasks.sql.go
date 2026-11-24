@@ -66,6 +66,40 @@ func (q *Queries) CreateComment(ctx context.Context, arg CreateCommentParams) (C
 	return i, err
 }
 
+const createDuplicate = `-- name: CreateDuplicate :one
+INSERT INTO report_duplicates (id, report_id, message_id, tag_message_id, message_text)
+VALUES (?, ?, ?, ?, ?)
+RETURNING id, report_id, message_id, tag_message_id, message_text, created_at
+`
+
+type CreateDuplicateParams struct {
+	ID           string `json:"id"`
+	ReportID     string `json:"report_id"`
+	MessageID    string `json:"message_id"`
+	TagMessageID string `json:"tag_message_id"`
+	MessageText  string `json:"message_text"`
+}
+
+func (q *Queries) CreateDuplicate(ctx context.Context, arg CreateDuplicateParams) (ReportDuplicate, error) {
+	row := q.db.QueryRowContext(ctx, createDuplicate,
+		arg.ID,
+		arg.ReportID,
+		arg.MessageID,
+		arg.TagMessageID,
+		arg.MessageText,
+	)
+	var i ReportDuplicate
+	err := row.Scan(
+		&i.ID,
+		&i.ReportID,
+		&i.MessageID,
+		&i.TagMessageID,
+		&i.MessageText,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const createReport = `-- name: CreateReport :one
 INSERT INTO reports (id, task_id, group_id, reporter_member_id, message_id, message_text, assigned_by_member_id, tag_message_id)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -185,7 +219,9 @@ const getReportByMessage = `-- name: GetReportByMessage :one
 SELECT r.id, r.task_id, r.group_id, r.reporter_member_id, r.message_id, r.message_text, r.tag_message_id, r.assigned_by_member_id, r.status, r.closed_by_member_id, r.closed_by_user_id, r.closed_via, r.closed_at, r.created_at, r.updated_at FROM reports r
 JOIN tasks t ON t.id = r.task_id
 WHERE t.project_id = ?1 AND r.group_id = ?2
-  AND (r.message_id = ?3 OR r.tag_message_id = ?3)
+  AND (r.message_id = ?3 OR r.tag_message_id = ?3
+       OR EXISTS (SELECT 1 FROM report_duplicates d WHERE d.report_id = r.id
+                  AND (d.message_id = ?3 OR d.tag_message_id = ?3)))
 LIMIT 1
 `
 
@@ -197,6 +233,39 @@ type GetReportByMessageParams struct {
 
 func (q *Queries) GetReportByMessage(ctx context.Context, arg GetReportByMessageParams) (Report, error) {
 	row := q.db.QueryRowContext(ctx, getReportByMessage, arg.ProjectID, arg.GroupID, arg.MessageID)
+	var i Report
+	err := row.Scan(
+		&i.ID,
+		&i.TaskID,
+		&i.GroupID,
+		&i.ReporterMemberID,
+		&i.MessageID,
+		&i.MessageText,
+		&i.TagMessageID,
+		&i.AssignedByMemberID,
+		&i.Status,
+		&i.ClosedByMemberID,
+		&i.ClosedByUserID,
+		&i.ClosedVia,
+		&i.ClosedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getReportInProject = `-- name: GetReportInProject :one
+SELECT r.id, r.task_id, r.group_id, r.reporter_member_id, r.message_id, r.message_text, r.tag_message_id, r.assigned_by_member_id, r.status, r.closed_by_member_id, r.closed_by_user_id, r.closed_via, r.closed_at, r.created_at, r.updated_at FROM reports r JOIN tasks t ON t.id = r.task_id
+WHERE r.id = ? AND t.project_id = ?
+`
+
+type GetReportInProjectParams struct {
+	ID        string `json:"id"`
+	ProjectID string `json:"project_id"`
+}
+
+func (q *Queries) GetReportInProject(ctx context.Context, arg GetReportInProjectParams) (Report, error) {
+	row := q.db.QueryRowContext(ctx, getReportInProject, arg.ID, arg.ProjectID)
 	var i Report
 	err := row.Scan(
 		&i.ID,
@@ -276,6 +345,84 @@ func (q *Queries) ListCommentsByTask(ctx context.Context, taskID string) ([]List
 			&i.CreatedAt,
 			&i.AuthorName,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDuplicatesByTask = `-- name: ListDuplicatesByTask :many
+SELECT d.id, d.report_id, d.message_id, d.tag_message_id, d.message_text, d.created_at FROM report_duplicates d
+JOIN reports r ON r.id = d.report_id
+WHERE r.task_id = ?
+ORDER BY d.created_at, d.id
+`
+
+func (q *Queries) ListDuplicatesByTask(ctx context.Context, taskID string) ([]ReportDuplicate, error) {
+	rows, err := q.db.QueryContext(ctx, listDuplicatesByTask, taskID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ReportDuplicate
+	for rows.Next() {
+		var i ReportDuplicate
+		if err := rows.Scan(
+			&i.ID,
+			&i.ReportID,
+			&i.MessageID,
+			&i.TagMessageID,
+			&i.MessageText,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listOpenReportsByReporter = `-- name: ListOpenReportsByReporter :many
+SELECT id, message_text FROM reports
+WHERE task_id = ? AND reporter_member_id = ? AND status = 'todo'
+ORDER BY created_at DESC
+LIMIT ?
+`
+
+type ListOpenReportsByReporterParams struct {
+	TaskID           string  `json:"task_id"`
+	ReporterMemberID *string `json:"reporter_member_id"`
+	Limit            int64   `json:"limit"`
+}
+
+type ListOpenReportsByReporterRow struct {
+	ID          string `json:"id"`
+	MessageText string `json:"message_text"`
+}
+
+func (q *Queries) ListOpenReportsByReporter(ctx context.Context, arg ListOpenReportsByReporterParams) ([]ListOpenReportsByReporterRow, error) {
+	rows, err := q.db.QueryContext(ctx, listOpenReportsByReporter, arg.TaskID, arg.ReporterMemberID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListOpenReportsByReporterRow
+	for rows.Next() {
+		var i ListOpenReportsByReporterRow
+		if err := rows.Scan(&i.ID, &i.MessageText); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

@@ -11,6 +11,10 @@ export function timeAgo(iso) {
 
 export const fullTime = (iso) => new Date(iso).toLocaleString();
 
+// "25 Nov, 7:02 PM" for sentences like "reported on 25 Nov, 7:02 PM"
+export const proseTime = (iso) =>
+  new Date(iso).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+
 export const memberName = (m) => m.push_name || m.phone || m.wa_id;
 
 const MODE_LABEL = { bot_only: 'bot only', all_texts: 'all texts' };
@@ -46,6 +50,8 @@ export function auditSentence(e) {
       return `${who} added a report ${q(e.detail)}`;
     case 'report.status_changed':
       return `${who} changed status of ${e.detail || 'a report'} from ${e.old_value} to ${e.new_value}`;
+    case 'report.duplicate_added':
+      return `${who} counted a repeat of the same message ${q(e.detail)}`;
     case 'comment.added':
       return `${who} added a note ${q(e.detail)}`;
     case 'report.comment_added':

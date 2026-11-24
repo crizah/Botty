@@ -95,5 +95,28 @@ LIMIT ?;
 SELECT r.* FROM reports r
 JOIN tasks t ON t.id = r.task_id
 WHERE t.project_id = sqlc.arg('project_id') AND r.group_id = sqlc.arg('group_id')
-  AND (r.message_id = sqlc.arg('message_id') OR r.tag_message_id = sqlc.arg('message_id'))
+  AND (r.message_id = sqlc.arg('message_id') OR r.tag_message_id = sqlc.arg('message_id')
+       OR EXISTS (SELECT 1 FROM report_duplicates d WHERE d.report_id = r.id
+                  AND (d.message_id = sqlc.arg('message_id') OR d.tag_message_id = sqlc.arg('message_id'))))
 LIMIT 1;
+
+-- name: ListOpenReportsByReporter :many
+SELECT id, message_text FROM reports
+WHERE task_id = ? AND reporter_member_id = ? AND status = 'todo'
+ORDER BY created_at DESC
+LIMIT ?;
+
+-- name: GetReportInProject :one
+SELECT r.* FROM reports r JOIN tasks t ON t.id = r.task_id
+WHERE r.id = ? AND t.project_id = ?;
+
+-- name: CreateDuplicate :one
+INSERT INTO report_duplicates (id, report_id, message_id, tag_message_id, message_text)
+VALUES (?, ?, ?, ?, ?)
+RETURNING *;
+
+-- name: ListDuplicatesByTask :many
+SELECT d.* FROM report_duplicates d
+JOIN reports r ON r.id = d.report_id
+WHERE r.task_id = ?
+ORDER BY d.created_at, d.id;

@@ -94,6 +94,15 @@ type Report struct {
 	UpdatedAt          time.Time  `json:"updated_at"`
 }
 
+type ReportDuplicate struct {
+	ID           string    `json:"id"`
+	ReportID     string    `json:"report_id"`
+	MessageID    string    `json:"message_id"`
+	TagMessageID string    `json:"tag_message_id"`
+	MessageText  string    `json:"message_text"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
 type TagAllowlist struct {
 	ProjectID string    `json:"project_id"`
 	GroupID   string    `json:"group_id"`

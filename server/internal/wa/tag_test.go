@@ -17,6 +17,8 @@ type fakeStore struct {
 	existing bool
 	created  *services.TagInput
 	closed   *services.TagInput
+	openReps []services.ReportCandidate
+	dupOf    string
 }
 
 func (f *fakeStore) Authorize(context.Context, string, []string) (services.TagContext, error) {
@@ -39,11 +41,18 @@ func (f *fakeStore) Close(_ context.Context, _ services.TagContext, in services.
 
 type fakeAI struct {
 	probs     map[string]float64
+	seq       []map[string]float64 // if set, successive Choose calls return these in order
+	calls     *int
 	err       error
 	nameCalls *int
 }
 
 func (f fakeAI) Choose(context.Context, string, string, []sarvam.Option) (map[string]float64, error) {
+	if f.seq != nil {
+		i := *f.calls
+		*f.calls++
+		return f.seq[i], f.err
+	}
 	return f.probs, f.err
 }
 func (f fakeAI) Name(context.Context, string) (sarvam.Naming, error) {
@@ -184,5 +193,58 @@ func TestNamingOnlyWhenNewTaskIsMade(t *testing.T) {
 	run(h, "@botty add")
 	if calls != 1 {
 		t.Fatalf("naming called %d times for a new task, want 1", calls)
+	}
+}
+
+func (f *fakeStore) OpenReportsBy(context.Context, services.TagContext, string, []string, int) ([]services.ReportCandidate, error) {
+	return f.openReps, nil
+}
+func (f *fakeStore) AddDuplicate(_ context.Context, _ services.TagContext, reportID string, _ services.TagInput) error {
+	f.dupOf = reportID
+	return nil
+}
+
+func dupHandler(st *fakeStore, second map[string]float64) *TagHandler {
+	n := 0
+	first := map[string]float64{"t1": 0.9, "t2": 0.05, optNone: 0.03, optNotTask: 0.02}
+	return &TagHandler{Store: st, AI: fakeAI{seq: []map[string]float64{first, second}, calls: &n}, Threshold: 0.6, DupThreshold: 0.7, MaxTasks: 50}
+}
+
+func TestSamePersonNoEarlierReportAddsAsIs(t *testing.T) {
+	n := 0
+	st := &fakeStore{tasks: tasks} // no open reports from this person
+	h := &TagHandler{Store: st, AI: fakeAI{seq: []map[string]float64{{"t1": 0.9, optNone: 0.1}}, calls: &n}, Threshold: 0.6, DupThreshold: 0.7, MaxTasks: 50}
+	if r := run(h, "@botty add"); r != "done" {
+		t.Fatalf("reply %q", r)
+	}
+	if st.created == nil || st.created.TaskID != "t1" || st.dupOf != "" || n != 1 {
+		t.Fatalf("created=%v dupOf=%q classifier calls=%d (want 1)", st.created, st.dupOf, n)
+	}
+}
+
+func TestExactRepeatIsCountedNotAddedAsNewReport(t *testing.T) {
+	st := &fakeStore{tasks: tasks, openReps: []services.ReportCandidate{{ID: "r1", Text: "paani leak ho raha hai"}}}
+	h := dupHandler(st, map[string]float64{"r1": 0.95, optDiff: 0.05})
+	if r := run(h, "@botty add"); r != "done" {
+		t.Fatalf("reply %q", r)
+	}
+	if st.dupOf != "r1" || st.created != nil {
+		t.Fatalf("dupOf=%q created=%v, want a repeat of r1 and no new report", st.dupOf, st.created)
+	}
+}
+
+func TestDifferentMessageFromSamePersonMakesAnotherReport(t *testing.T) {
+	st := &fakeStore{tasks: tasks, openReps: []services.ReportCandidate{{ID: "r1", Text: "tap leaking"}}}
+	h := dupHandler(st, map[string]float64{"r1": 0.2, optDiff: 0.8})
+	run(h, "@botty add")
+	if st.dupOf != "" || st.created == nil || st.created.TaskID != "t1" {
+		t.Fatalf("dupOf=%q created=%v, want a new report on t1", st.dupOf, st.created)
+	}
+	// a borderline "same" below the duplicate threshold also counts as different
+	st2 := &fakeStore{tasks: tasks, openReps: []services.ReportCandidate{{ID: "r1", Text: "tap leaking"}}}
+	h2 := dupHandler(st2, map[string]float64{"r1": 0.6, optDiff: 0.4})
+	run(h2, "@botty add")
+	if st2.dupOf != "" || st2.created == nil {
+		t.Fatal("0.6 is under the 0.7 duplicate threshold, must be a new report")
 	}
 }

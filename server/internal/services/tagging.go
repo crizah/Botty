@@ -194,3 +194,41 @@ func (s *TagService) Close(ctx context.Context, tc TagContext, in TagInput) (Tag
 }
 
 func (c TaskCandidate) String() string { return fmt.Sprintf("T-%d %s", c.Number, c.Title) }
+
+// ReportCandidate is an open report from one person, for the "is this the exact same message?" check.
+type ReportCandidate struct {
+	ID   string
+	Text string
+}
+
+// OpenReportsBy returns the still-open reports on a task written by this person (most recent first).
+// An unknown reporter has none.
+func (s *TagService) OpenReportsBy(ctx context.Context, tc TagContext, taskID string, reporterWaIDs []string, limit int) ([]ReportCandidate, error) {
+	if len(reporterWaIDs) == 0 {
+		return nil, nil
+	}
+	m, err := s.Queries.GetActiveMemberByWaIDs(ctx, db.GetActiveMemberByWaIDsParams{GroupID: tc.GroupID, Ids: reporterWaIDs})
+	if err != nil {
+		return nil, nil // not a known member
+	}
+	rows, err := s.Queries.ListOpenReportsByReporter(ctx, db.ListOpenReportsByReporterParams{TaskID: taskID, ReporterMemberID: &m.ID, Limit: int64(limit)})
+	out := make([]ReportCandidate, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, ReportCandidate{ID: r.ID, Text: r.MessageText})
+	}
+	return out, err
+}
+
+// AddDuplicate records the same message again on an existing report instead of making a new one.
+func (s *TagService) AddDuplicate(ctx context.Context, tc TagContext, reportID string, in TagInput) error {
+	return withTx(ctx, s.db, s.Queries, func(q *db.Queries) error {
+		rep, err := q.GetReportInProject(ctx, db.GetReportInProjectParams{ID: reportID, ProjectID: tc.ProjectID})
+		if err != nil {
+			return notFoundOr(err, "report not found")
+		}
+		if _, err := q.CreateDuplicate(ctx, db.CreateDuplicateParams{ID: newID(), ReportID: rep.ID, MessageID: in.MessageID, TagMessageID: in.TagMessageID, MessageText: in.MessageText}); err != nil {
+			return err
+		}
+		return logAudit(ctx, q, auditEntry{ProjectID: tc.ProjectID, TaskID: rep.TaskID, ReportID: rep.ID, ActorKind: "bot", Action: "report.duplicate_added", Detail: truncate(in.MessageText, 80)})
+	})
+}

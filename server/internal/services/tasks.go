@@ -67,6 +67,12 @@ func (s *TaskService) Get(ctx context.Context, userID, taskID string) (schemas.T
 	if out.Reports, err = s.Queries.ListReportsByTask(ctx, t.ID); err != nil {
 		return out, err
 	}
+	if out.Duplicates, err = s.Queries.ListDuplicatesByTask(ctx, t.ID); err != nil {
+		return out, err
+	}
+	if out.Duplicates == nil {
+		out.Duplicates = []db.ReportDuplicate{}
+	}
 	if out.Comments, err = s.Queries.ListCommentsByTask(ctx, t.ID); err != nil {
 		return out, err
 	}

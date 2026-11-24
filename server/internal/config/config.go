@@ -28,6 +28,7 @@ type Config struct {
 	SarvamURL      string
 	NamingModel    string  // the small chat model that names new tasks
 	MatchThreshold float64 // min Prism probability to file under an existing task
+	DupThreshold   float64 // min Prism probability to treat a message as an exact repeat
 	TagMaxTasks    int     // how many recent open tasks are offered to the classifier
 }
 
@@ -50,6 +51,7 @@ func Load() Config {
 		SarvamURL:      get("SARVAM_BASE_URL", "https://api.sarvam.ai"),
 		NamingModel:    get("SARVAM_NAMING_MODEL", "sarvam-105b-conversations"),
 		MatchThreshold: atof(get("TAG_MATCH_THRESHOLD", "0.6"), 0.6), // TODO: change - tune on real scores
+		DupThreshold:   atof(get("DUP_MATCH_THRESHOLD", "0.7"), 0.7), // TODO: change - tune on real scores
 		TagMaxTasks:    atoi(get("TAG_MAX_TASKS", "50"), 50),
 	}
 

@@ -20,6 +20,8 @@ type TagStore interface {
 	FindReport(ctx context.Context, tc services.TagContext, messageID string) (db.Report, bool)
 	Create(ctx context.Context, tc services.TagContext, in services.TagInput) (services.TagResult, error)
 	Close(ctx context.Context, tc services.TagContext, in services.TagInput) (services.TagResult, error)
+	OpenReportsBy(ctx context.Context, tc services.TagContext, taskID string, reporterWaIDs []string, limit int) ([]services.ReportCandidate, error)
+	AddDuplicate(ctx context.Context, tc services.TagContext, reportID string, in services.TagInput) error
 }
 
 // Classifier is the Sarvam side (implemented by sarvam.Client).
@@ -38,8 +40,9 @@ var (
 func isDone(text string) bool { return doneRe.MatchString(mentionTok.ReplaceAllString(text, " ")) }
 
 const (
-	optNone    = "NONE"     // doesn't match any existing task: a new request
-	optNotTask = "NOT_TASK" // chit-chat, thanks, greetings: not a request at all
+	optNone    = "NONE"      // doesn't match any existing task: a new request
+	optNotTask = "NOT_TASK"  // chit-chat, thanks, greetings: not a request at all
+	optDiff    = "DIFFERENT" // not the exact same message as any earlier one
 	taskTO     = 40 * time.Second
 )
 
@@ -47,10 +50,11 @@ const (
 // create (new task or another report on an existing one) or done.
 // Standalone tags (no reply) are ignored for now.
 type TagHandler struct {
-	Store     TagStore
-	AI        Classifier
-	Threshold float64
-	MaxTasks  int
+	Store        TagStore
+	AI           Classifier
+	Threshold    float64 // min Prism probability to file under an existing task
+	DupThreshold float64 // min probability to call two messages from the same person the exact same
+	MaxTasks     int
 }
 
 func (h *TagHandler) Handle(ctx context.Context, m Message) {
@@ -110,6 +114,21 @@ func (h *TagHandler) create(ctx context.Context, m Message, tc services.TagConte
 		return
 	case kindExisting:
 		in.TaskID = d.taskID
+		// same person, same task: is this the exact same message they already sent?
+		if cands, err := h.Store.OpenReportsBy(ctx, tc, d.taskID, in.ReporterWaID, 10); err != nil {
+			log.Printf("[wa] tag open reports: %v", err)
+		} else if len(cands) > 0 {
+			if repID := h.sameReport(ctx, in.MessageText, cands); repID != "" {
+				if err := h.Store.AddDuplicate(ctx, tc, repID, in); err != nil {
+					log.Printf("[wa] tag duplicate: %v", err)
+					_ = m.Reply(ctx, "Something went wrong saving that. Try again.")
+					return
+				}
+				log.Printf("[wa] tag: counted as a repeat of an existing report")
+				_ = m.Reply(ctx, "done")
+				return
+			}
+		}
 	default:
 		naming, err := h.AI.Name(ctx, in.MessageText)
 		if err != nil || naming.Title == "" {
@@ -204,6 +223,32 @@ func (h *TagHandler) decide(ctx context.Context, text string, tasks []services.T
 		return decision{kind: kindNotTask}
 	}
 	return decision{kind: kindExisting, taskID: best}
+}
+
+// sameReport asks Prism whether the new message says EXACTLY the same thing as one of the
+// person's earlier open reports. It returns that report's ID, or "" when it is different.
+func (h *TagHandler) sameReport(ctx context.Context, text string, cands []services.ReportCandidate) string {
+	opts := make([]sarvam.Option, 0, len(cands)+1)
+	for _, c := range cands {
+		opts = append(opts, sarvam.Option{ID: c.ID, Text: c.Text})
+	}
+	opts = append(opts, sarvam.Option{ID: optDiff, Text: "A different message: it reports a different problem or adds something new"})
+	probs, err := h.AI.Choose(ctx, text, "Is this message saying EXACTLY the same thing as one of these earlier messages from the same person? Choose "+optDiff+" unless it clearly repeats one of them.", opts)
+	if err != nil {
+		log.Printf("[wa] prism (duplicate check): %v", err) // treat as different
+		return ""
+	}
+	best, bp := "", 0.0
+	for id, p := range probs {
+		if p > bp {
+			best, bp = id, p
+		}
+	}
+	log.Printf("[wa] prism duplicate check: top=%s p=%.2f (threshold %.2f)", best, bp, h.DupThreshold)
+	if best == optDiff || bp < h.DupThreshold {
+		return ""
+	}
+	return best
 }
 
 // fallbackTitle is used when the naming model fails: the first few words of the message.

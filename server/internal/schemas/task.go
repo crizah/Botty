@@ -94,10 +94,12 @@ type TaskResponse struct {
 }
 
 type TaskDetailResponse struct {
-	Task     db.Task                    `json:"task"`
-	Reports  []db.ListReportsByTaskRow  `json:"reports"`
-	Comments []db.ListCommentsByTaskRow `json:"comments"`
-	Audit    []db.ListAuditByTaskRow    `json:"audit"`
+	Task    db.Task                   `json:"task"`
+	Reports []db.ListReportsByTaskRow `json:"reports"`
+	// Duplicates are repeats of a report's message by the same person; group by report_id.
+	Duplicates []db.ReportDuplicate       `json:"duplicates"`
+	Comments   []db.ListCommentsByTaskRow `json:"comments"`
+	Audit      []db.ListAuditByTaskRow    `json:"audit"`
 }
 
 type ReportResponse struct {

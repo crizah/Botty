@@ -42,3 +42,15 @@ CREATE TABLE comments (
     created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX idx_comments_task ON comments(task_id);
+
+-- The same person saying the same thing again about a task: kept on the original report as extra
+-- messages instead of making a second report. Count shown = 1 + the number of rows here.
+CREATE TABLE report_duplicates (
+    id             TEXT NOT NULL PRIMARY KEY,
+    report_id      TEXT NOT NULL REFERENCES reports(id) ON DELETE CASCADE,
+    message_id     TEXT NOT NULL DEFAULT '', -- WhatsApp id of the repeated message
+    tag_message_id TEXT NOT NULL DEFAULT '', -- the message that tagged the bot for it
+    message_text   TEXT NOT NULL DEFAULT '',
+    created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP -- when it was tagged (WhatsApp gives no send time for a quoted message)
+);
+CREATE INDEX idx_report_duplicates_report ON report_duplicates(report_id);

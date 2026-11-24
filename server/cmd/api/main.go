@@ -48,10 +48,11 @@ func main() {
 		chain := wa.Chain{wa.NewLinkHandler(services.NewClaimService(conn), keeper)}
 		if cfg.SarvamKey != "" {
 			chain = append(chain, &wa.TagHandler{
-				Store:     services.NewTagService(conn),
-				AI:        sarvam.New(cfg.SarvamKey, cfg.SarvamURL, cfg.NamingModel),
-				Threshold: cfg.MatchThreshold,
-				MaxTasks:  cfg.TagMaxTasks,
+				Store:        services.NewTagService(conn),
+				AI:           sarvam.New(cfg.SarvamKey, cfg.SarvamURL, cfg.NamingModel),
+				Threshold:    cfg.MatchThreshold,
+				DupThreshold: cfg.DupThreshold,
+				MaxTasks:     cfg.TagMaxTasks,
 			})
 		} else {
 			log.Println("[wa] SARVAM_API_KEY not set - tagging the bot to make/close tasks is disabled")

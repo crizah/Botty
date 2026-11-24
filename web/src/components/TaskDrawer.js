@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import api, { errMsg } from '../config/axios';
 import ErrorBox from './ErrorBox';
-import { auditSentence, fullTime, memberName, taskRef, timeAgo } from '../utils/format';
+import { auditSentence, fullTime, memberName, proseTime, taskRef, timeAgo } from '../utils/format';
 
 // Side panel for one task: its reports (each with a status toggle + notes), task notes and activity.
 export default function TaskDrawer({ taskId, onClose, onChanged }) {
@@ -12,6 +12,10 @@ export default function TaskDrawer({ taskId, onClose, onChanged }) {
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all'); // all | todo | done
+  const [personFilter, setPersonFilter] = useState('all'); // reporter: all | <member id> | none
+  const [assignerFilter, setAssignerFilter] = useState('all'); // who tagged the bot: all | <member id> | none
+  const [groupFilter, setGroupFilter] = useState('all'); // which WhatsApp group: all | <group id> | none
 
   const load = useCallback(async () => {
     try {
@@ -23,7 +27,7 @@ export default function TaskDrawer({ taskId, onClose, onChanged }) {
     }
   }, [taskId]);
 
-  useEffect(() => { setData(null); setEditing(false); load(); }, [load]);
+  useEffect(() => { setData(null); setEditing(false); setStatusFilter('all'); setPersonFilter('all'); setAssignerFilter('all'); setGroupFilter('all'); load(); }, [load]);
 
   // close on Escape
   useEffect(() => {
@@ -47,6 +51,31 @@ export default function TaskDrawer({ taskId, onClose, onChanged }) {
   }
 
   const { task, reports, comments, audit } = data;
+  const duplicates = data.duplicates || [];
+
+  // everyone who has a report on this task, for the "by user" filter
+  const people = [];
+  reports.forEach((r) => {
+    const key = r.reporter_member_id || 'none';
+    if (!people.some((p) => p.key === key)) people.push({ key, name: r.reporter_name || 'Unknown reporter' });
+  });
+  // and everyone who tagged the bot to create one
+  const assigners = [];
+  reports.forEach((r) => {
+    const key = r.assigned_by_member_id || 'none';
+    if (!assigners.some((p) => p.key === key)) assigners.push({ key, name: r.assigned_by_name || 'Unknown' });
+  });
+  // and every group the task was reported in
+  const groupsSeen = [];
+  reports.forEach((r) => {
+    const key = r.group_id || 'none';
+    if (!groupsSeen.some((p) => p.key === key)) groupsSeen.push({ key, name: r.group_name || 'No group' });
+  });
+  const shown = reports.filter((r) =>
+    (statusFilter === 'all' || r.status === statusFilter) &&
+    (personFilter === 'all' || (r.reporter_member_id || 'none') === personFilter) &&
+    (assignerFilter === 'all' || (r.assigned_by_member_id || 'none') === assignerFilter) &&
+    (groupFilter === 'all' || (r.group_id || 'none') === groupFilter));
   const taskComments = comments.filter((c) => !c.report_id);
 
   const startEdit = () => { setTitle(task.title); setDescription(task.description); setEditing(true); };
@@ -100,10 +129,32 @@ export default function TaskDrawer({ taskId, onClose, onChanged }) {
         <h2>Reports ({reports.filter((r) => r.status === 'done').length}/{reports.length} done)</h2>
       </div>
       <p className="muted">The task is done only when every report is done. Reopening any report reopens the task.</p>
+      {reports.length > 0 && (
+        <div className="row wrap mt">
+          <div className="seg" role="group" aria-label="filter reports by status">
+            {[['all', 'All'], ['todo', 'Open'], ['done', 'Done']].map(([v, label]) => (
+              <button key={v} className={statusFilter === v ? 'active' : ''} onClick={() => setStatusFilter(v)}>{label}</button>
+            ))}
+          </div>
+          <select value={personFilter} onChange={(e) => setPersonFilter(e.target.value)} aria-label="filter by reporter">
+            <option value="all">Reporter: all ({people.length})</option>
+            {people.map((p) => <option key={p.key} value={p.key}>{p.name}</option>)}
+          </select>
+          <select value={assignerFilter} onChange={(e) => setAssignerFilter(e.target.value)} aria-label="filter by assigner">
+            <option value="all">Assigner: all ({assigners.length})</option>
+            {assigners.map((p) => <option key={p.key} value={p.key}>{p.name}</option>)}
+          </select>
+          <select value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)} aria-label="filter by group">
+            <option value="all">Group: all ({groupsSeen.length})</option>
+            {groupsSeen.map((p) => <option key={p.key} value={p.key}>{p.name}</option>)}
+          </select>
+        </div>
+      )}
       <div className="stack mt">
         {reports.length === 0 && <div className="empty">No reports.</div>}
-        {reports.map((r) => (
-          <ReportCard key={r.id} report={r} comments={comments.filter((c) => c.report_id === r.id)} canWrite={canWrite} run={run} />
+        {reports.length > 0 && shown.length === 0 && <div className="empty">No reports match these filters.</div>}
+        {shown.map((r) => (
+          <ReportCard key={r.id} report={r} repeats={duplicates.filter((d) => d.report_id === r.id)} comments={comments.filter((c) => c.report_id === r.id)} canWrite={canWrite} run={run} />
         ))}
         {canWrite && <AddReport task={task} run={run} />}
       </div>
@@ -126,7 +177,7 @@ export default function TaskDrawer({ taskId, onClose, onChanged }) {
   );
 }
 
-function ReportCard({ report: r, comments, canWrite, run }) {
+function ReportCard({ report: r, repeats, comments, canWrite, run }) {
   const [showNotes, setShowNotes] = useState(false);
   const toggle = () => run(() => api.patch(`/reports/${r.id}/status`, { status: r.status === 'done' ? 'todo' : 'done' }));
 
@@ -136,12 +187,20 @@ function ReportCard({ report: r, comments, canWrite, run }) {
         <div className="row wrap">
           <span className={`tag ${r.status}`}>{r.status}</span>
           <span className="bold">{r.reporter_name || 'Unknown reporter'}</span>
-          {r.group_name && <span className="muted">in {r.group_name}</span>}
+          {r.group_name && <span className="muted">in group "{r.group_name}"</span>}
+          {repeats.length > 0 && <span className="tag" title="the same person said this again">×{repeats.length + 1}</span>}
         </div>
         <button className="btn sm" disabled={!canWrite} onClick={toggle}>{r.status === 'done' ? 'Reopen' : 'Mark done'}</button>
       </div>
 
       {r.message_text && <p className="quote mt">{r.message_text}</p>}
+      <p className="muted">{repeats.length > 0 ? 'First reported' : 'Reported'} on {proseTime(r.created_at)}</p>
+      {repeats.map((d) => (
+        <div key={d.id} className="mt">
+          <p className="quote">{d.message_text}</p>
+          <p className="muted">Said again on {proseTime(d.created_at)}</p>
+        </div>
+      ))}
       <p className="muted mt">
         {r.message_id && <>message <span className="mono">{r.message_id}</span> · </>}
         {r.assigned_by_name ? <>assigned by {r.assigned_by_name}</> : 'assigned by —'}
