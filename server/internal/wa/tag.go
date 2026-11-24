@@ -36,6 +36,13 @@ var (
 	doneRe = regexp.MustCompile(`(?i)\b(done|fixed|resolved|completed?|closed?|sorted|solved|finished|ho\s?gaya|ho\s?gya|hogaya|kar\s?diya|kardiya|(?:thik|theek)\s+ho\s+gaya)\b|✅`)
 )
 
+var botMention = regexp.MustCompile(`(?i)@botty\b|@\d{7,}`)
+
+// stripBotMention removes "@botty" and mention-by-number tokens, leaving the actual request.
+func stripBotMention(text string) string {
+	return strings.Join(strings.Fields(botMention.ReplaceAllString(text, " ")), " ")
+}
+
 // isDone: replies containing a "done"-style word close work; anything else creates.
 func isDone(text string) bool { return doneRe.MatchString(mentionTok.ReplaceAllString(text, " ")) }
 
@@ -46,9 +53,10 @@ const (
 	taskTO     = 40 * time.Second
 )
 
-// TagHandler handles "@botty ..." sent as a reply to someone's message:
-// create (new task or another report on an existing one) or done.
-// Standalone tags (no reply) are ignored for now.
+// TagHandler handles "@botty ...":
+//   - as a reply to someone's message: create (new task or another report on an existing one) or done
+//   - standalone ("@botty my water broke"): create only, from the message's own text. Standalone
+//     tags never complete anything.
 type TagHandler struct {
 	Store        TagStore
 	AI           Classifier
@@ -58,7 +66,7 @@ type TagHandler struct {
 }
 
 func (h *TagHandler) Handle(ctx context.Context, m Message) {
-	if !(m.Mentioned || strings.Contains(strings.ToLower(m.Text), "@botty")) || m.QuotedID == "" {
+	if !(m.Mentioned || strings.Contains(strings.ToLower(m.Text), "@botty")) {
 		return
 	}
 	if linkCmd.MatchString(m.Text) {
@@ -79,6 +87,14 @@ func (h *TagHandler) Handle(ctx context.Context, m Message) {
 		return
 	default:
 		log.Printf("[wa] tag authorize: %v", err)
+		return
+	}
+	if m.QuotedID == "" { // standalone: the sender reports their own issue
+		text := stripBotMention(m.Text)
+		if text == "" {
+			return
+		}
+		h.create(ctx, m, tc, services.TagInput{MessageID: m.ID, MessageText: text, ReporterWaID: m.SenderIDs})
 		return
 	}
 	if strings.TrimSpace(m.QuotedText) == "" {

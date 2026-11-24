@@ -141,11 +141,7 @@ func TestNotAllowedAndStandalone(t *testing.T) {
 	if r := run(h, "@botty add"); !strings.Contains(r, "allowlist") {
 		t.Fatalf("reply %q", r)
 	}
-	var replied bool
-	h.Handle(context.Background(), Message{Text: "@botty add", Mentioned: true, Reply: func(context.Context, string) error { replied = true; return nil }})
-	if replied {
-		t.Fatal("standalone tags are ignored for now")
-	}
+
 }
 
 type panicAI struct{}
@@ -246,5 +242,63 @@ func TestDifferentMessageFromSamePersonMakesAnotherReport(t *testing.T) {
 	run(h2, "@botty add")
 	if st2.dupOf != "" || st2.created == nil {
 		t.Fatal("0.6 is under the 0.7 duplicate threshold, must be a new report")
+	}
+}
+
+func standalone(h *TagHandler, text string) (reply string) {
+	h.Handle(context.Background(), Message{
+		ID: "B9", SenderIDs: []string{"s"}, Text: text, Mentioned: true,
+		Reply: func(_ context.Context, t string) error { reply = t; return nil },
+	})
+	return reply
+}
+
+func TestStandaloneCreatesFromOwnText(t *testing.T) {
+	st := &fakeStore{tasks: tasks}
+	h := &TagHandler{Store: st, AI: fakeAI{probs: map[string]float64{"t1": 0.1, "t2": 0.1, optNone: 0.7, optNotTask: 0.1}}, Threshold: 0.6, DupThreshold: 0.7, MaxTasks: 50}
+	if r := standalone(h, "@botty my water broke"); r != "done" {
+		t.Fatalf("reply %q", r)
+	}
+	if st.created == nil || st.created.MessageText != "my water broke" || st.created.MessageID != "B9" || len(st.created.ReporterWaID) != 1 {
+		t.Fatalf("%+v", st.created)
+	}
+	if st.closed != nil {
+		t.Fatal("standalone must never close anything")
+	}
+}
+
+func TestStandaloneNeverCompletes(t *testing.T) {
+	st := &fakeStore{tasks: tasks, existing: true}
+	h := &TagHandler{Store: st, AI: fakeAI{probs: map[string]float64{"t1": 0.9, optNone: 0.1}}, Threshold: 0.6, DupThreshold: 0.7, MaxTasks: 50}
+	standalone(h, "@botty done")
+	standalone(h, "@botty fixed the tap")
+	if st.closed != nil {
+		t.Fatalf("a standalone tag closed something: %+v", st.closed)
+	}
+}
+
+func TestStandaloneNeedsAllowlistAndText(t *testing.T) {
+	deny := &TagHandler{Store: &fakeStore{authErr: services.Forbidden("x")}, AI: panicAI{}, Threshold: 0.6, MaxTasks: 50}
+	if r := standalone(deny, "@botty my water broke"); !strings.Contains(r, "allowlist") {
+		t.Fatalf("reply %q", r)
+	}
+	st := &fakeStore{tasks: tasks}
+	h := &TagHandler{Store: st, AI: panicAI{}, Threshold: 0.6, MaxTasks: 50}
+	if r := standalone(h, "@botty"); r != "" || st.created != nil {
+		t.Fatal("a bare tag must be ignored")
+	}
+}
+
+func TestStripBotMention(t *testing.T) {
+	for in, want := range map[string]string{
+		"@botty my water broke":            "my water broke",
+		"@Botty   room 4 fan\nnot working": "room 4 fan not working",
+		"@919876543210 tap leaking":        "tap leaking",
+		"tap leaking @botty":               "tap leaking",
+		"@botty":                           "",
+	} {
+		if got := stripBotMention(in); got != want {
+			t.Errorf("%q -> %q, want %q", in, got, want)
+		}
 	}
 }
