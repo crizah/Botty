@@ -31,7 +31,7 @@ export default function Signup() {
 
   return (
     <div className="page narrow">
-      <form className="stack" onSubmit={submit}>
+      <form className="card stack" onSubmit={submit}>
         <h1>Create account</h1>
         <ErrorBox error={error} />
         <label className="field">Email

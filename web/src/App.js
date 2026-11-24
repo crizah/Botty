@@ -4,7 +4,7 @@ import Layout from './components/Layout';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
 import Groups from './pages/Groups';
-import Projects from './pages/Projects';
+import Dashboard from './pages/Dashboard';
 import ProjectLayout from './pages/ProjectLayout';
 import Board from './pages/Board';
 import ProjectGroups from './pages/ProjectGroups';
@@ -18,7 +18,7 @@ export default function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
           <Route element={<Layout />}>
-            <Route path="/" element={<Projects />} />
+            <Route path="/" element={<Dashboard />} />
             <Route path="/groups" element={<Groups />} />
             <Route path="/projects/:id" element={<ProjectLayout />}>
               <Route index element={<Board />} />

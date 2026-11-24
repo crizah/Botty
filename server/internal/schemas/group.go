@@ -1,6 +1,12 @@
 package schemas
 
-import db "server/internal/db/sqlc"
+import (
+	"errors"
+	"strings"
+	"time"
+
+	db "server/internal/db/sqlc"
+)
 
 // --- Requests ---
 
@@ -36,4 +42,29 @@ type MembersResponse struct {
 
 type AllowlistResponse struct {
 	Members []db.ListAllowlistRow `json:"members"`
+}
+
+// ClaimResponse is a one-time code the user sends in a group as "@botty link <code>".
+type ClaimResponse struct {
+	Code      string    `json:"code"`
+	Command   string    `json:"command"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+// DevRedeemRequest simulates the bot seeing "@botty link <code>" in a group.
+// TODO: change - delete once the ingest worker handles real messages.
+type DevRedeemRequest struct {
+	Code string `json:"code"`
+	Name string `json:"name"`
+}
+
+func (r *DevRedeemRequest) Validate() error {
+	r.Name = strings.TrimSpace(r.Name)
+	if r.Code == "" {
+		return errors.New("code is required")
+	}
+	if r.Name == "" {
+		r.Name = "Test group"
+	}
+	return nil
 }

@@ -65,12 +65,14 @@ func routes(conn *sql.DB, cfg config.Config) http.Handler {
 	authSvc := services.NewAuthService(conn, cfg.JWTSecret)
 	projectSvc := services.NewProjectService(conn)
 	groupSvc := services.NewGroupService(conn, cfg.BotNumber, cfg.DevMode)
+	claimSvc := services.NewClaimService(conn)
 	taskSvc := services.NewTaskService(conn)
 
 	// handlers
 	authH := handlers.NewAuthHandler(authSvc, cfg.CookieSecure)
 	projectH := handlers.NewProjectHandler(projectSvc)
 	groupH := handlers.NewGroupHandler(groupSvc)
+	claimH := handlers.NewClaimHandler(claimSvc, cfg.DevMode)
 	taskH := handlers.NewTaskHandler(taskSvc)
 
 	mux := http.NewServeMux()
@@ -91,9 +93,11 @@ func routes(conn *sql.DB, cfg config.Config) http.Handler {
 	// bot + the groups it has been added to
 	protected("GET /api/v1/bot", groupH.BotInfo)
 	protected("GET /api/v1/groups", groupH.ListMine)
+	protected("POST /api/v1/groups/claims", claimH.Create)
 	if cfg.DevMode {
 		// TODO: change - dev only, remove once the ingest worker discovers real groups
 		protected("POST /api/v1/dev/groups", groupH.DevCreate)
+		protected("POST /api/v1/dev/groups/link", claimH.DevRedeem)
 	}
 
 	// projects

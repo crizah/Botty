@@ -30,7 +30,7 @@ export default function Login() {
 
   return (
     <div className="page narrow">
-      <form className="stack" onSubmit={submit}>
+      <form className="card stack" onSubmit={submit}>
         <h1>BOTTY</h1>
         <p className="muted">Turn group chats into tracked tasks.</p>
         <ErrorBox error={error} />

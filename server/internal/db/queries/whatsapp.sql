@@ -33,3 +33,23 @@ UPDATE wa_group_members SET phone = ? WHERE id = ?;
 
 -- name: ListMembersWithoutPhone :many
 SELECT * FROM wa_group_members WHERE phone IS NULL LIMIT ?;
+
+-- name: CreateClaim :one
+INSERT INTO group_claims (id, code, user_id, expires_at)
+VALUES (?, ?, ?, datetime('now', '+30 minutes'))
+RETURNING *;
+
+-- name: GetOpenClaimByCode :one
+SELECT * FROM group_claims
+WHERE code = ? AND used_at IS NULL AND expires_at > CURRENT_TIMESTAMP;
+
+-- name: MarkClaimUsed :exec
+UPDATE group_claims SET used_at = CURRENT_TIMESTAMP, group_id = ? WHERE id = ?;
+
+-- name: GetGroupByJID :one
+SELECT * FROM wa_groups WHERE jid = ?;
+
+-- name: ListOpenClaimsForUser :many
+SELECT * FROM group_claims
+WHERE user_id = ? AND used_at IS NULL AND expires_at > CURRENT_TIMESTAMP
+ORDER BY created_at DESC;

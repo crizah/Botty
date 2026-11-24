@@ -10,6 +10,33 @@ import (
 	"time"
 )
 
+const createClaim = `-- name: CreateClaim :one
+INSERT INTO group_claims (id, code, user_id, expires_at)
+VALUES (?, ?, ?, datetime('now', '+30 minutes'))
+RETURNING id, code, user_id, expires_at, used_at, group_id, created_at
+`
+
+type CreateClaimParams struct {
+	ID     string `json:"id"`
+	Code   string `json:"code"`
+	UserID string `json:"user_id"`
+}
+
+func (q *Queries) CreateClaim(ctx context.Context, arg CreateClaimParams) (GroupClaim, error) {
+	row := q.db.QueryRowContext(ctx, createClaim, arg.ID, arg.Code, arg.UserID)
+	var i GroupClaim
+	err := row.Scan(
+		&i.ID,
+		&i.Code,
+		&i.UserID,
+		&i.ExpiresAt,
+		&i.UsedAt,
+		&i.GroupID,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const createGroup = `-- name: CreateGroup :one
 INSERT INTO wa_groups (id, jid, name, owner_user_id)
 VALUES (?, ?, ?, ?)
@@ -58,6 +85,23 @@ func (q *Queries) GetGroup(ctx context.Context, id string) (WaGroup, error) {
 	return i, err
 }
 
+const getGroupByJID = `-- name: GetGroupByJID :one
+SELECT id, jid, name, owner_user_id, created_at FROM wa_groups WHERE jid = ?
+`
+
+func (q *Queries) GetGroupByJID(ctx context.Context, jid string) (WaGroup, error) {
+	row := q.db.QueryRowContext(ctx, getGroupByJID, jid)
+	var i WaGroup
+	err := row.Scan(
+		&i.ID,
+		&i.Jid,
+		&i.Name,
+		&i.OwnerUserID,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getMember = `-- name: GetMember :one
 SELECT id, group_id, wa_id, phone, push_name, created_at FROM wa_group_members WHERE id = ?
 `
@@ -71,6 +115,26 @@ func (q *Queries) GetMember(ctx context.Context, id string) (WaGroupMember, erro
 		&i.WaID,
 		&i.Phone,
 		&i.PushName,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getOpenClaimByCode = `-- name: GetOpenClaimByCode :one
+SELECT id, code, user_id, expires_at, used_at, group_id, created_at FROM group_claims
+WHERE code = ? AND used_at IS NULL AND expires_at > CURRENT_TIMESTAMP
+`
+
+func (q *Queries) GetOpenClaimByCode(ctx context.Context, code string) (GroupClaim, error) {
+	row := q.db.QueryRowContext(ctx, getOpenClaimByCode, code)
+	var i GroupClaim
+	err := row.Scan(
+		&i.ID,
+		&i.Code,
+		&i.UserID,
+		&i.ExpiresAt,
+		&i.UsedAt,
+		&i.GroupID,
 		&i.CreatedAt,
 	)
 	return i, err
@@ -190,6 +254,57 @@ func (q *Queries) ListMembersWithoutPhone(ctx context.Context, limit int64) ([]W
 		return nil, err
 	}
 	return items, nil
+}
+
+const listOpenClaimsForUser = `-- name: ListOpenClaimsForUser :many
+SELECT id, code, user_id, expires_at, used_at, group_id, created_at FROM group_claims
+WHERE user_id = ? AND used_at IS NULL AND expires_at > CURRENT_TIMESTAMP
+ORDER BY created_at DESC
+`
+
+func (q *Queries) ListOpenClaimsForUser(ctx context.Context, userID string) ([]GroupClaim, error) {
+	rows, err := q.db.QueryContext(ctx, listOpenClaimsForUser, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GroupClaim
+	for rows.Next() {
+		var i GroupClaim
+		if err := rows.Scan(
+			&i.ID,
+			&i.Code,
+			&i.UserID,
+			&i.ExpiresAt,
+			&i.UsedAt,
+			&i.GroupID,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const markClaimUsed = `-- name: MarkClaimUsed :exec
+UPDATE group_claims SET used_at = CURRENT_TIMESTAMP, group_id = ? WHERE id = ?
+`
+
+type MarkClaimUsedParams struct {
+	GroupID *string `json:"group_id"`
+	ID      string  `json:"id"`
+}
+
+func (q *Queries) MarkClaimUsed(ctx context.Context, arg MarkClaimUsedParams) error {
+	_, err := q.db.ExecContext(ctx, markClaimUsed, arg.GroupID, arg.ID)
+	return err
 }
 
 const setMemberPhone = `-- name: SetMemberPhone :exec

@@ -21,3 +21,16 @@ CREATE TABLE wa_group_members (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (group_id, wa_id)
 );
+
+-- One-time codes a dashboard user generates, then sends in a group as "@botty link <code>".
+-- A group only exists in wa_groups once a claim succeeds, so ownership is always explicit.
+CREATE TABLE group_claims (
+    id         TEXT NOT NULL PRIMARY KEY,
+    code       TEXT NOT NULL UNIQUE,
+    user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    expires_at DATETIME NOT NULL,
+    used_at    DATETIME,
+    group_id   TEXT REFERENCES wa_groups(id) ON DELETE SET NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_group_claims_user ON group_claims(user_id);

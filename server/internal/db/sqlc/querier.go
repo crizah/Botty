@@ -15,6 +15,7 @@ type Querier interface {
 	CountOpenReports(ctx context.Context, taskID string) (int64, error)
 	CountReports(ctx context.Context, taskID string) (int64, error)
 	CreateAuditLog(ctx context.Context, arg CreateAuditLogParams) error
+	CreateClaim(ctx context.Context, arg CreateClaimParams) (GroupClaim, error)
 	CreateComment(ctx context.Context, arg CreateCommentParams) (Comment, error)
 	CreateGroup(ctx context.Context, arg CreateGroupParams) (WaGroup, error)
 	CreateProject(ctx context.Context, arg CreateProjectParams) (Project, error)
@@ -23,7 +24,9 @@ type Querier interface {
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
 	DetachGroup(ctx context.Context, arg DetachGroupParams) error
 	GetGroup(ctx context.Context, id string) (WaGroup, error)
+	GetGroupByJID(ctx context.Context, jid string) (WaGroup, error)
 	GetMember(ctx context.Context, id string) (WaGroupMember, error)
+	GetOpenClaimByCode(ctx context.Context, code string) (GroupClaim, error)
 	GetProject(ctx context.Context, id string) (Project, error)
 	GetProjectRole(ctx context.Context, arg GetProjectRoleParams) (string, error)
 	GetReport(ctx context.Context, id string) (Report, error)
@@ -38,10 +41,12 @@ type Querier interface {
 	ListGroupsForOwner(ctx context.Context, ownerUserID string) ([]ListGroupsForOwnerRow, error)
 	ListMembersByGroup(ctx context.Context, groupID string) ([]WaGroupMember, error)
 	ListMembersWithoutPhone(ctx context.Context, limit int64) ([]WaGroupMember, error)
+	ListOpenClaimsForUser(ctx context.Context, userID string) ([]GroupClaim, error)
 	ListProjectGroups(ctx context.Context, projectID string) ([]ListProjectGroupsRow, error)
 	ListProjectsForUser(ctx context.Context, userID string) ([]ListProjectsForUserRow, error)
 	ListReportsByTask(ctx context.Context, taskID string) ([]ListReportsByTaskRow, error)
 	ListTasksByProject(ctx context.Context, projectID string) ([]ListTasksByProjectRow, error)
+	MarkClaimUsed(ctx context.Context, arg MarkClaimUsedParams) error
 	NextTaskNumber(ctx context.Context, projectID string) (int64, error)
 	RemoveAllowlist(ctx context.Context, arg RemoveAllowlistParams) error
 	SetMemberPhone(ctx context.Context, arg SetMemberPhoneParams) error

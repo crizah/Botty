@@ -4,10 +4,12 @@ import { Link } from 'react-router-dom';
 import api, { errMsg } from '../config/axios';
 import ErrorBox from '../components/ErrorBox';
 import { memberName } from '../utils/format';
+import { useData } from '../context/DataContext';
 
 export default function ProjectGroups() {
   const { id } = useParams();
   const { isOwner } = useOutletContext();
+  const { refresh: refreshSidebar } = useData();
   const [attached, setAttached] = useState(null);
   const [available, setAvailable] = useState([]);
   const [pick, setPick] = useState('');
@@ -32,6 +34,7 @@ export default function ProjectGroups() {
       await api.post(`/projects/${id}/groups`, { group_id: pick });
       setPick('');
       load();
+      refreshSidebar();
     } catch (e) {
       setError(errMsg(e));
     }
@@ -42,6 +45,7 @@ export default function ProjectGroups() {
     try {
       await api.delete(`/projects/${id}/groups/${gid}`);
       load();
+      refreshSidebar();
     } catch (e) {
       setError(errMsg(e));
     }

@@ -31,6 +31,16 @@ type Comment struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
+type GroupClaim struct {
+	ID        string     `json:"id"`
+	Code      string     `json:"code"`
+	UserID    string     `json:"user_id"`
+	ExpiresAt time.Time  `json:"expires_at"`
+	UsedAt    *time.Time `json:"used_at"`
+	GroupID   *string    `json:"group_id"`
+	CreatedAt time.Time  `json:"created_at"`
+}
+
 type Project struct {
 	ID          string    `json:"id"`
 	Name        string    `json:"name"`
