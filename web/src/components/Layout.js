@@ -3,6 +3,7 @@ import { Navigate, NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { DataProvider, useData } from '../context/DataContext';
 import NewProjectModal from './NewProjectModal';
+import Logo from './Logo';
 
 export default function Layout() {
   const { user, loading } = useAuth();
@@ -31,7 +32,7 @@ function Shell() {
   return (
     <div className="shell">
       <aside className="sidebar">
-        <NavLink to="/" className="brand">BOTTY</NavLink>
+        <NavLink to="/" className="brand"><Logo size={32} />BOTTY</NavLink>
 
         <nav className="side-nav">
           <NavLink to="/" end className={cls}>Dashboard</NavLink>

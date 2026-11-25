@@ -3,6 +3,7 @@ import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { errMsg } from '../config/axios';
 import ErrorBox from '../components/ErrorBox';
+import AuthShell from '../components/AuthShell';
 
 export default function Signup() {
   const { user, signup } = useAuth();
@@ -30,9 +31,12 @@ export default function Signup() {
   };
 
   return (
-    <div className="page narrow">
-      <form className="card stack" onSubmit={submit}>
-        <h1>Create account</h1>
+    <AuthShell
+      title="Create your account"
+      subtitle="Get started with Botty."
+      footer={<>Already have an account? <Link to="/login">Log in</Link></>}
+    >
+      <form className="auth-form" onSubmit={submit}>
         <ErrorBox error={error} />
         <label className="field">Email
           <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />
@@ -44,8 +48,7 @@ export default function Signup() {
           <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} minLength={8} maxLength={72} required />
         </label>
         <button className="btn primary" disabled={busy}>{busy ? 'Creating…' : 'Sign up'}</button>
-        <p className="small">Already have an account? <Link to="/login">Log in</Link></p>
       </form>
-    </div>
+    </AuthShell>
   );
 }

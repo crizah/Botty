@@ -1,4 +1,5 @@
 .env
 notes.md
 .data/
-.db*
+.db
+exe
