@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,6 +23,7 @@ type TagStore interface {
 	Close(ctx context.Context, tc services.TagContext, in services.TagInput) (services.TagResult, error)
 	OpenReportsBy(ctx context.Context, tc services.TagContext, taskID string, reporterWaIDs []string, limit int) ([]services.ReportCandidate, error)
 	AddDuplicate(ctx context.Context, tc services.TagContext, reportID string, in services.TagInput) error
+	Thread(ctx context.Context, groupID, startID string, max int) []services.ThreadMsg
 }
 
 // Classifier is the Sarvam side (implemented by sarvam.Client).
@@ -61,6 +63,7 @@ type TagHandler struct {
 	Threshold    float64 // min Prism probability to file under an existing task
 	DupThreshold float64 // min probability to call two messages from the same person the exact same
 	MaxTasks     int
+	ChainDepth   int // most messages of a reply chain sent to the classifier (1 = just the replied-to message)
 }
 
 func (h *TagHandler) Handle(ctx context.Context, m Message) {
@@ -92,7 +95,7 @@ func (h *TagHandler) Handle(ctx context.Context, m Message) {
 		if text == "" {
 			return
 		}
-		h.create(ctx, m, tc, services.TagInput{MessageID: m.ID, MessageText: text, ReporterWaID: m.SenderIDs})
+		h.create(ctx, m, tc, services.TagInput{MessageID: m.ID, MessageText: text, ReporterWaID: m.SenderIDs}, "")
 		return
 	}
 	if strings.TrimSpace(m.QuotedText) == "" {
@@ -101,6 +104,7 @@ func (h *TagHandler) Handle(ctx context.Context, m Message) {
 	}
 
 	in := services.TagInput{TagMessageID: m.ID, MessageID: m.QuotedID, MessageText: m.QuotedText, ReporterWaID: ids(m.QuotedSender)}
+	thread := h.thread(ctx, tc, m)
 	it, err := h.intent(ctx, m.Text)
 	if err != nil {
 		log.Printf("[wa] prism (intent): %v", err)
@@ -111,9 +115,9 @@ func (h *TagHandler) Handle(ctx context.Context, m Message) {
 	case intentInvalid:
 		_ = m.Reply(ctx, "that's not a valid instruction")
 	case intentDone:
-		h.done(ctx, m, tc, in)
+		h.done(ctx, m, tc, in, thread)
 	default:
-		h.create(ctx, m, tc, in)
+		h.create(ctx, m, tc, in, thread)
 	}
 }
 
@@ -152,7 +156,11 @@ func (h *TagHandler) intent(ctx context.Context, tagText string) (intentKind, er
 	return intentCreate, nil
 }
 
-func (h *TagHandler) create(ctx context.Context, m Message, tc services.TagContext, in services.TagInput) {
+func (h *TagHandler) create(ctx context.Context, m Message, tc services.TagContext, in services.TagInput, thread string) {
+	classify := in.MessageText // what the classifier reads: the message, or its whole reply chain
+	if thread != "" {
+		classify = thread
+	}
 	if _, dup := h.Store.FindReport(ctx, tc, in.MessageID); dup {
 		_ = m.Reply(ctx, "That message is already tracked.")
 		return
@@ -164,7 +172,7 @@ func (h *TagHandler) create(ctx context.Context, m Message, tc services.TagConte
 	}
 
 	// classify first; the naming model is only called when a new task will actually be made
-	d := h.decide(ctx, in.MessageText, tasks, true)
+	d := h.decide(ctx, classify, tasks, true, thread != "")
 	switch d.kind {
 	case kindNotTask:
 		log.Printf("[wa] tag: classified as not a task, skipped")
@@ -188,7 +196,7 @@ func (h *TagHandler) create(ctx context.Context, m Message, tc services.TagConte
 			}
 		}
 	default:
-		naming, err := h.AI.Name(ctx, in.MessageText)
+		naming, err := h.AI.Name(ctx, classify)
 		if err != nil || naming.Title == "" {
 			if err != nil {
 				log.Printf("[wa] naming failed, using fallback title: %v", err)
@@ -207,14 +215,18 @@ func (h *TagHandler) create(ctx context.Context, m Message, tc services.TagConte
 	_ = m.Reply(ctx, "done")
 }
 
-func (h *TagHandler) done(ctx context.Context, m Message, tc services.TagContext, in services.TagInput) {
+func (h *TagHandler) done(ctx context.Context, m Message, tc services.TagContext, in services.TagInput, thread string) {
+	classify := in.MessageText
+	if thread != "" {
+		classify = thread
+	}
 	if _, ok := h.Store.FindReport(ctx, tc, in.MessageID); !ok { // not already a report: classify it
 		tasks, err := h.Store.OpenTasks(ctx, tc.ProjectID, h.MaxTasks)
 		if err != nil {
 			log.Printf("[wa] tag open tasks: %v", err)
 			return
 		}
-		d := h.decide(ctx, in.MessageText, tasks, false)
+		d := h.decide(ctx, classify, tasks, false, thread != "")
 		in.TaskID = d.taskID
 		if d.kind != kindExisting {
 			_ = m.Reply(ctx, "I couldn't tell which task that is. Reply to the original request with @botty done.")
@@ -246,7 +258,7 @@ type decision struct {
 
 // decide asks Prism where the message belongs: one of the open tasks, a new task, or (when
 // allowNotTask) "not a task". A low-confidence or failed answer means a new task.
-func (h *TagHandler) decide(ctx context.Context, text string, tasks []services.TaskCandidate, allowNotTask bool) decision {
+func (h *TagHandler) decide(ctx context.Context, text string, tasks []services.TaskCandidate, allowNotTask, isThread bool) decision {
 	opts := make([]sarvam.Option, 0, len(tasks)+2)
 	for _, t := range tasks {
 		d := t.Title
@@ -257,6 +269,9 @@ func (h *TagHandler) decide(ctx context.Context, text string, tasks []services.T
 	}
 	opts = append(opts, sarvam.Option{ID: optNone, Text: "None of the above: a different, new request or problem that needs doing"})
 	instr := "Which existing task is this message about? Choose " + optNone + " if it is a different problem."
+	if isThread {
+		instr = "This is a reply chain, oldest message first. Which existing task is the LAST message about? Use the earlier messages for context. Choose " + optNone + " if it is a different problem."
+	}
 	if allowNotTask {
 		opts = append(opts, sarvam.Option{ID: optNotTask, Text: "Not a task: chit-chat, thanks, greetings, jokes or a plain statement with nothing to do"})
 		instr += " Choose " + optNotTask + " if it is not a request or problem at all."
@@ -330,4 +345,37 @@ func ids(vals ...string) []string {
 		}
 	}
 	return out
+}
+
+// thread builds the text the classifier reads for a reply tag: the replied-to message plus the
+// messages it was replying to, oldest first. It is "" when there is no chain to show (just the
+// one message), so those cases keep sending the plain message.
+func (h *TagHandler) thread(ctx context.Context, tc services.TagContext, m Message) string {
+	if h.ChainDepth < 2 {
+		return ""
+	}
+	msgs := h.Store.Thread(ctx, tc.GroupID, m.QuotedID, h.ChainDepth)
+	if len(msgs) < 2 || msgs[len(msgs)-1].ID != m.QuotedID {
+		return ""
+	}
+	msgs[len(msgs)-1].Text = m.QuotedText // WhatsApp's own copy of the replied-to message
+	return formatThread(msgs)
+}
+
+// formatThread labels a reply chain for the classifier.
+func formatThread(msgs []services.ThreadMsg) string {
+	var b strings.Builder
+	b.WriteString("Thread (oldest first):")
+	for i, t := range msgs {
+		name := t.Sender
+		if name == "" {
+			name = "Someone"
+		}
+		b.WriteString("\n" + strconv.Itoa(i+1) + ". " + name)
+		if i > 0 {
+			b.WriteString(" (replying to " + strconv.Itoa(i) + ")")
+		}
+		b.WriteString(": " + t.Text)
+	}
+	return b.String()
 }

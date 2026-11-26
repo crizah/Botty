@@ -45,7 +45,8 @@ func main() {
 
 	if cfg.WAEnabled {
 		keeper := wa.NewKeeper(services.NewGroupService(conn, cfg.BotNumber, cfg.DevMode))
-		chain := wa.Chain{wa.NewLinkHandler(services.NewClaimService(conn), keeper)}
+		msgLog := services.NewMessageLog(conn)
+		chain := wa.Chain{&wa.MessageLogger{Groups: services.NewGroupService(conn, cfg.BotNumber, cfg.DevMode), Log: msgLog}, wa.NewLinkHandler(services.NewClaimService(conn), keeper)}
 		if cfg.SarvamKey != "" {
 			chain = append(chain, &wa.TagHandler{
 				Store:        services.NewTagService(conn),
@@ -53,11 +54,26 @@ func main() {
 				Threshold:    cfg.MatchThreshold,
 				DupThreshold: cfg.DupThreshold,
 				MaxTasks:     cfg.TagMaxTasks,
+				ChainDepth:   cfg.ChainDepth,
 			})
 		} else {
 			log.Println("[wa] SARVAM_API_KEY not set - tagging the bot to make/close tasks is disabled")
 		}
 		chain = append(chain, keeper)
+		go func() { // drop old logged messages hourly
+			for {
+				if n, err := msgLog.Purge(ctx, cfg.MsgRetention); err != nil {
+					log.Printf("[wa] message purge: %v", err)
+				} else if n > 0 {
+					log.Printf("[wa] purged %d old messages", n)
+				}
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(time.Hour):
+				}
+			}
+		}()
 		waClient := wa.New(cfg.WASessionDB, chain, keeper, cfg.WAWorkers)
 		go func() {
 			if err := waClient.Run(ctx); err != nil {

@@ -147,3 +147,14 @@ type WaGroupMember struct {
 	LeftAt    *time.Time `json:"left_at"`
 	CreatedAt time.Time  `json:"created_at"`
 }
+
+type WaMessage struct {
+	ID         string    `json:"id"`
+	GroupID    string    `json:"group_id"`
+	MessageID  string    `json:"message_id"`
+	SenderWaID string    `json:"sender_wa_id"`
+	SenderName string    `json:"sender_name"`
+	Text       string    `json:"text"`
+	QuotedID   string    `json:"quoted_id"`
+	CreatedAt  time.Time `json:"created_at"`
+}

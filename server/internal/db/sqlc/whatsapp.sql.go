@@ -97,6 +97,34 @@ func (q *Queries) CreateGroup(ctx context.Context, arg CreateGroupParams) (WaGro
 	return i, err
 }
 
+const createMessage = `-- name: CreateMessage :exec
+INSERT OR IGNORE INTO wa_messages (id, group_id, message_id, sender_wa_id, sender_name, text, quoted_id)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+`
+
+type CreateMessageParams struct {
+	ID         string `json:"id"`
+	GroupID    string `json:"group_id"`
+	MessageID  string `json:"message_id"`
+	SenderWaID string `json:"sender_wa_id"`
+	SenderName string `json:"sender_name"`
+	Text       string `json:"text"`
+	QuotedID   string `json:"quoted_id"`
+}
+
+func (q *Queries) CreateMessage(ctx context.Context, arg CreateMessageParams) error {
+	_, err := q.db.ExecContext(ctx, createMessage,
+		arg.ID,
+		arg.GroupID,
+		arg.MessageID,
+		arg.SenderWaID,
+		arg.SenderName,
+		arg.Text,
+		arg.QuotedID,
+	)
+	return err
+}
+
 const deleteAllowlistForLeavers = `-- name: DeleteAllowlistForLeavers :exec
 DELETE FROM tag_allowlist
 WHERE member_id IN (
@@ -211,6 +239,31 @@ func (q *Queries) GetMember(ctx context.Context, id string) (WaGroupMember, erro
 		&i.Phone,
 		&i.PushName,
 		&i.LeftAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getMessage = `-- name: GetMessage :one
+SELECT id, group_id, message_id, sender_wa_id, sender_name, text, quoted_id, created_at FROM wa_messages WHERE group_id = ? AND message_id = ?
+`
+
+type GetMessageParams struct {
+	GroupID   string `json:"group_id"`
+	MessageID string `json:"message_id"`
+}
+
+func (q *Queries) GetMessage(ctx context.Context, arg GetMessageParams) (WaMessage, error) {
+	row := q.db.QueryRowContext(ctx, getMessage, arg.GroupID, arg.MessageID)
+	var i WaMessage
+	err := row.Scan(
+		&i.ID,
+		&i.GroupID,
+		&i.MessageID,
+		&i.SenderWaID,
+		&i.SenderName,
+		&i.Text,
+		&i.QuotedID,
 		&i.CreatedAt,
 	)
 	return i, err
@@ -428,6 +481,18 @@ func (q *Queries) MarkMembersLeftExcept(ctx context.Context, arg MarkMembersLeft
 		query = strings.Replace(query, "/*SLICE:keep*/?", "NULL", 1)
 	}
 	result, err := q.db.ExecContext(ctx, query, queryParams...)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const purgeMessages = `-- name: PurgeMessages :execrows
+DELETE FROM wa_messages WHERE created_at < datetime('now', ?1)
+`
+
+func (q *Queries) PurgeMessages(ctx context.Context, age interface{}) (int64, error) {
+	result, err := q.db.ExecContext(ctx, purgeMessages, age)
 	if err != nil {
 		return 0, err
 	}

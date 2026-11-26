@@ -232,3 +232,8 @@ func (s *TagService) AddDuplicate(ctx context.Context, tc TagContext, reportID s
 		return logAudit(ctx, q, auditEntry{ProjectID: tc.ProjectID, TaskID: rep.TaskID, ReportID: rep.ID, ActorKind: "bot", Action: "report.duplicate_added", Detail: truncate(in.MessageText, 80)})
 	})
 }
+
+// Thread returns the reply chain ending at startID (see MessageLog.Thread).
+func (s *TagService) Thread(ctx context.Context, groupID, startID string, max int) []ThreadMsg {
+	return (&MessageLog{Queries: s.Queries}).Thread(ctx, groupID, startID, max)
+}

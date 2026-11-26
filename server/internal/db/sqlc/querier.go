@@ -22,6 +22,7 @@ type Querier interface {
 	CreateDuplicate(ctx context.Context, arg CreateDuplicateParams) (ReportDuplicate, error)
 	CreateGroup(ctx context.Context, arg CreateGroupParams) (WaGroup, error)
 	CreateInvite(ctx context.Context, arg CreateInviteParams) (ProjectInvite, error)
+	CreateMessage(ctx context.Context, arg CreateMessageParams) error
 	CreateProject(ctx context.Context, arg CreateProjectParams) (Project, error)
 	CreateReport(ctx context.Context, arg CreateReportParams) (Report, error)
 	CreateTask(ctx context.Context, arg CreateTaskParams) (Task, error)
@@ -33,6 +34,7 @@ type Querier interface {
 	GetGroupByJID(ctx context.Context, jid string) (WaGroup, error)
 	GetInvite(ctx context.Context, id string) (ProjectInvite, error)
 	GetMember(ctx context.Context, id string) (WaGroupMember, error)
+	GetMessage(ctx context.Context, arg GetMessageParams) (WaMessage, error)
 	GetOpenClaimByCode(ctx context.Context, code string) (GroupClaim, error)
 	GetOpenInvite(ctx context.Context, id string) (ProjectInvite, error)
 	GetProject(ctx context.Context, id string) (Project, error)
@@ -67,6 +69,7 @@ type Querier interface {
 	MarkClaimUsed(ctx context.Context, arg MarkClaimUsedParams) error
 	MarkMembersLeftExcept(ctx context.Context, arg MarkMembersLeftExceptParams) (int64, error)
 	NextTaskNumber(ctx context.Context, projectID string) (int64, error)
+	PurgeMessages(ctx context.Context, age interface{}) (int64, error)
 	RefreshInvite(ctx context.Context, arg RefreshInviteParams) (ProjectInvite, error)
 	RemoveAllowlist(ctx context.Context, arg RemoveAllowlistParams) error
 	RemoveProjectMember(ctx context.Context, arg RemoveProjectMemberParams) (int64, error)

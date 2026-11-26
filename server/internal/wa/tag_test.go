@@ -19,6 +19,7 @@ type fakeStore struct {
 	closed   *services.TagInput
 	openReps []services.ReportCandidate
 	dupOf    string
+	thread   []services.ThreadMsg
 }
 
 func (f *fakeStore) Authorize(context.Context, string, []string) (services.TagContext, error) {
@@ -33,6 +34,9 @@ func (f *fakeStore) FindReport(context.Context, services.TagContext, string) (db
 func (f *fakeStore) Create(_ context.Context, _ services.TagContext, in services.TagInput) (services.TagResult, error) {
 	f.created = &in
 	return services.TagResult{Number: 7, Title: "X", Created: in.TaskID == ""}, nil
+}
+func (f *fakeStore) Thread(context.Context, string, string, int) []services.ThreadMsg {
+	return f.thread
 }
 func (f *fakeStore) Close(_ context.Context, _ services.TagContext, in services.TagInput) (services.TagResult, error) {
 	f.closed = &in
@@ -359,5 +363,13 @@ func TestStandaloneTagsMakeNoIntentCall(t *testing.T) {
 	h := &TagHandler{Store: st, AI: fakeAI{intentErr: errors.New("intent must not be called"), probs: map[string]float64{optNone: 1}}, Threshold: 0.6, DupThreshold: 0.7, MaxTasks: 50}
 	if r := standalone(h, "@botty make me a sandwich"); r != "done" || st.created == nil {
 		t.Fatalf("reply=%q created=%v", r, st.created)
+	}
+}
+
+func TestFormatThread(t *testing.T) {
+	got := formatThread([]services.ThreadMsg{{Sender: "Asha", Text: "didnt get access on mail"}, {Text: "mine too"}})
+	want := "Thread (oldest first):\n1. Asha: didnt get access on mail\n2. Someone (replying to 1): mine too"
+	if got != want {
+		t.Fatalf("got %q", got)
 	}
 }

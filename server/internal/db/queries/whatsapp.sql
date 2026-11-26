@@ -74,3 +74,13 @@ WHERE member_id IN (
 SELECT * FROM wa_group_members
 WHERE group_id = sqlc.arg('group_id') AND left_at IS NULL AND wa_id IN (sqlc.slice('ids'))
 LIMIT 1;
+
+-- name: CreateMessage :exec
+INSERT OR IGNORE INTO wa_messages (id, group_id, message_id, sender_wa_id, sender_name, text, quoted_id)
+VALUES (?, ?, ?, ?, ?, ?, ?);
+
+-- name: GetMessage :one
+SELECT * FROM wa_messages WHERE group_id = ? AND message_id = ?;
+
+-- name: PurgeMessages :execrows
+DELETE FROM wa_messages WHERE created_at < datetime('now', sqlc.arg(age));

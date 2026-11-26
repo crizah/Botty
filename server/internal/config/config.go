@@ -30,6 +30,8 @@ type Config struct {
 	MatchThreshold float64 // min Prism probability to file under an existing task
 	DupThreshold   float64 // min Prism probability to treat a message as an exact repeat
 	TagMaxTasks    int     // how many recent open tasks are offered to the classifier
+	ChainDepth     int     // most messages of a reply chain sent to the classifier
+	MsgRetention   int     // days recent group messages are kept for reply chains
 }
 
 func Load() Config {
@@ -53,6 +55,8 @@ func Load() Config {
 		MatchThreshold: atof(get("TAG_MATCH_THRESHOLD", "0.6"), 0.6), // TODO: change - tune on real scores
 		DupThreshold:   atof(get("DUP_MATCH_THRESHOLD", "0.7"), 0.7), // TODO: change - tune on real scores
 		TagMaxTasks:    atoi(get("TAG_MAX_TASKS", "50"), 50),
+		ChainDepth:     atoi(get("TAG_CHAIN_DEPTH", "3"), 3),
+		MsgRetention:   atoi(get("MSG_RETENTION_DAYS", "7"), 7),
 	}
 
 	secret := os.Getenv("JWT_SECRET")

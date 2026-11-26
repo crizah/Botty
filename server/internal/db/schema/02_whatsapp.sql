@@ -36,3 +36,18 @@ CREATE TABLE group_claims (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX idx_group_claims_user ON group_claims(user_id);
+
+-- Recent text messages from linked groups, kept only so a tag can follow a reply chain
+-- (see TAG_CHAIN_DEPTH). Rows are purged after MSG_RETENTION_DAYS.
+CREATE TABLE wa_messages (
+    id           TEXT NOT NULL PRIMARY KEY,
+    group_id     TEXT NOT NULL REFERENCES wa_groups(id) ON DELETE CASCADE,
+    message_id   TEXT NOT NULL, -- WhatsApp's message ID
+    sender_wa_id TEXT NOT NULL,
+    sender_name  TEXT NOT NULL DEFAULT '',
+    text         TEXT NOT NULL,
+    quoted_id    TEXT NOT NULL DEFAULT '', -- the message this one replies to
+    created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (group_id, message_id)
+);
+CREATE INDEX idx_wa_messages_created ON wa_messages(created_at);
