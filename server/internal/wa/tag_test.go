@@ -21,6 +21,7 @@ type fakeStore struct {
 	openReps []services.ReportCandidate
 	dupOf    string
 	thread   []services.ThreadMsg
+	reportID string
 }
 
 func (f *fakeStore) Authorize(context.Context, string, []string) (services.TagContext, error) {
@@ -34,7 +35,7 @@ func (f *fakeStore) FindReport(context.Context, services.TagContext, string) (db
 }
 func (f *fakeStore) Create(_ context.Context, _ services.TagContext, in services.TagInput) (services.TagResult, error) {
 	f.created = &in
-	return services.TagResult{Number: 7, Title: "X", Created: in.TaskID == ""}, nil
+	return services.TagResult{Number: 7, Title: "X", Created: in.TaskID == "", ReportID: "r-new"}, nil
 }
 func (f *fakeStore) Thread(context.Context, string, string, int) []services.ThreadMsg {
 	return f.thread
@@ -438,5 +439,84 @@ func TestOwnReportDifferentFromEarlierOneIsAdded(t *testing.T) {
 	tagOwn(ownReportHandler(st, map[string]float64{"r7": 0.2, optDiff: 0.8}))
 	if st.dupOf != "" || st.created == nil || st.created.TaskID != "t9" {
 		t.Fatalf("dupOf=%q created=%v, want a new report on t9", st.dupOf, st.created)
+	}
+}
+
+type fakeMedia struct {
+	saved    int
+	reportID string
+	msgID    string
+	err      error
+}
+
+func (f *fakeMedia) Save(_ context.Context, _ services.TagContext, reportID, messageID string, _ []byte) error {
+	f.saved++
+	f.reportID, f.msgID = reportID, messageID
+	return f.err
+}
+
+func img(size uint64, mime string) *ImageRef {
+	return &ImageRef{Mime: mime, Size: size, Download: func(context.Context) ([]byte, error) { return []byte("bytes"), nil }}
+}
+
+func imgHandler(st *fakeStore, media *fakeMedia) *TagHandler {
+	return &TagHandler{Store: st, AI: fakeAI{probs: map[string]float64{optNone: 0.9}}, Threshold: 0.6, MaxTasks: 50, Media: media, MaxImage: 5 << 20}
+}
+
+func sendImage(h *TagHandler, text string, in *ImageRef, quoted bool) (reply string) {
+	m := Message{ID: "tag3", SenderIDs: []string{"s"}, Text: text, Mentioned: true, Image: in,
+		Reply: func(_ context.Context, t string) error { reply = t; return nil }}
+	if quoted {
+		m.Image, m.QuotedImage = nil, in
+		m.QuotedID, m.QuotedText = "q9", "sink is broken"
+	}
+	h.Handle(context.Background(), m)
+	return reply
+}
+
+func TestCaptionedImageCreatesReportAndSavesImage(t *testing.T) {
+	st, media := &fakeStore{tasks: tasks}, &fakeMedia{}
+	if r := sendImage(imgHandler(st, media), "the sink is broken @botty", img(1000, "image/jpeg"), false); r != "done" {
+		t.Fatalf("reply %q", r)
+	}
+	if st.created == nil || st.created.MessageText != "the sink is broken" || media.saved != 1 || media.reportID != "r-new" || media.msgID != "tag3" {
+		t.Fatalf("created=%+v media=%+v", st.created, media)
+	}
+}
+
+func TestImageWithoutCaptionAsksForOne(t *testing.T) {
+	st, media := &fakeStore{tasks: tasks}, &fakeMedia{}
+	if r := sendImage(imgHandler(st, media), "@botty", img(1000, "image/jpeg"), false); r != noCaption {
+		t.Fatalf("reply %q", r)
+	}
+	if st.created != nil || media.saved != 0 {
+		t.Fatal("nothing should be saved")
+	}
+}
+
+func TestRepliedToImageIsSavedOnTheReport(t *testing.T) {
+	st, media := &fakeStore{tasks: tasks}, &fakeMedia{}
+	if r := sendImage(imgHandler(st, media), "@botty add", img(1000, "image/png"), true); r != "done" {
+		t.Fatalf("reply %q", r)
+	}
+	if st.created == nil || media.saved != 1 || media.msgID != "q9" {
+		t.Fatalf("created=%+v media=%+v", st.created, media)
+	}
+}
+
+func TestBigOrWrongTypeImageIsRefusedBeforeSaving(t *testing.T) {
+	for _, in := range []*ImageRef{img(6<<20, "image/jpeg"), img(1000, "image/gif")} {
+		st, media := &fakeStore{tasks: tasks}, &fakeMedia{}
+		r := sendImage(imgHandler(st, media), "leak @botty", in, false)
+		if r == "done" || st.created != nil || media.saved != 0 {
+			t.Fatalf("reply %q created=%v", r, st.created)
+		}
+	}
+}
+
+func TestImageSaveFailureKeepsTheReport(t *testing.T) {
+	st, media := &fakeStore{tasks: tasks}, &fakeMedia{err: errors.New("disk full")}
+	if r := sendImage(imgHandler(st, media), "leak @botty", img(1000, "image/jpeg"), false); r != "done, but I couldn't save the image." || st.created == nil {
+		t.Fatalf("reply %q created=%v", r, st.created)
 	}
 }

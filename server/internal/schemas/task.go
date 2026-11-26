@@ -97,9 +97,11 @@ type TaskDetailResponse struct {
 	Task    db.Task                   `json:"task"`
 	Reports []db.ListReportsByTaskRow `json:"reports"`
 	// Duplicates are repeats of a report's message by the same person; group by report_id.
-	Duplicates []db.ReportDuplicate       `json:"duplicates"`
-	Comments   []db.ListCommentsByTaskRow `json:"comments"`
-	Audit      []db.ListAuditByTaskRow    `json:"audit"`
+	Duplicates []db.ReportDuplicate `json:"duplicates"`
+	// Media are the images attached to reports; group by report_id, fetch each at /media/{id}.
+	Media    []db.ListMediaByTaskRow    `json:"media"`
+	Comments []db.ListCommentsByTaskRow `json:"comments"`
+	Audit    []db.ListAuditByTaskRow    `json:"audit"`
 }
 
 type ReportResponse struct {

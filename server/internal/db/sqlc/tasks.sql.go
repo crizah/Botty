@@ -100,6 +100,31 @@ func (q *Queries) CreateDuplicate(ctx context.Context, arg CreateDuplicateParams
 	return i, err
 }
 
+const createMedia = `-- name: CreateMedia :exec
+INSERT INTO report_media (id, report_id, message_id, file, mime, size) VALUES (?, ?, ?, ?, ?, ?)
+`
+
+type CreateMediaParams struct {
+	ID        string `json:"id"`
+	ReportID  string `json:"report_id"`
+	MessageID string `json:"message_id"`
+	File      string `json:"file"`
+	Mime      string `json:"mime"`
+	Size      int64  `json:"size"`
+}
+
+func (q *Queries) CreateMedia(ctx context.Context, arg CreateMediaParams) error {
+	_, err := q.db.ExecContext(ctx, createMedia,
+		arg.ID,
+		arg.ReportID,
+		arg.MessageID,
+		arg.File,
+		arg.Mime,
+		arg.Size,
+	)
+	return err
+}
+
 const createReport = `-- name: CreateReport :one
 INSERT INTO reports (id, task_id, group_id, reporter_member_id, message_id, message_text, assigned_by_member_id, tag_message_id)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -185,6 +210,27 @@ func (q *Queries) CreateTask(ctx context.Context, arg CreateTaskParams) (Task, e
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
+	return i, err
+}
+
+const getMediaFile = `-- name: GetMediaFile :one
+SELECT m.file, m.mime, t.project_id
+FROM report_media m
+JOIN reports r ON r.id = m.report_id
+JOIN tasks t ON t.id = r.task_id
+WHERE m.id = ?
+`
+
+type GetMediaFileRow struct {
+	File      string `json:"file"`
+	Mime      string `json:"mime"`
+	ProjectID string `json:"project_id"`
+}
+
+func (q *Queries) GetMediaFile(ctx context.Context, id string) (GetMediaFileRow, error) {
+	row := q.db.QueryRowContext(ctx, getMediaFile, id)
+	var i GetMediaFileRow
+	err := row.Scan(&i.File, &i.Mime, &i.ProjectID)
 	return i, err
 }
 
@@ -380,6 +426,53 @@ func (q *Queries) ListDuplicatesByTask(ctx context.Context, taskID string) ([]Re
 			&i.MessageID,
 			&i.TagMessageID,
 			&i.MessageText,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listMediaByTask = `-- name: ListMediaByTask :many
+SELECT m.id, m.report_id, m.message_id, m.mime, m.size, m.created_at
+FROM report_media m
+JOIN reports r ON r.id = m.report_id
+WHERE r.task_id = ?
+ORDER BY m.created_at, m.id
+`
+
+type ListMediaByTaskRow struct {
+	ID        string    `json:"id"`
+	ReportID  string    `json:"report_id"`
+	MessageID string    `json:"message_id"`
+	Mime      string    `json:"mime"`
+	Size      int64     `json:"size"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+func (q *Queries) ListMediaByTask(ctx context.Context, taskID string) ([]ListMediaByTaskRow, error) {
+	rows, err := q.db.QueryContext(ctx, listMediaByTask, taskID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListMediaByTaskRow
+	for rows.Next() {
+		var i ListMediaByTaskRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ReportID,
+			&i.MessageID,
+			&i.Mime,
+			&i.Size,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err

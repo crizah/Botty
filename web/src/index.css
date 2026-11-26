@@ -126,6 +126,9 @@ label.field > .muted { font-weight: 400; }
 .error { border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--text); border-radius: var(--r-sm); padding: 8px 12px; font-weight: 600; }
 .error::before { content: '⚠ '; }
 .empty { border: 1px dashed var(--border-strong); border-radius: var(--r); padding: 28px; text-align: center; color: var(--text-dim); }
+.report-img { max-width: 100%; max-height: 160px; border: 1px solid var(--border); border-radius: var(--r); cursor: zoom-in; object-fit: cover; }
+.lightbox { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; padding: 24px; background: rgba(0, 0, 0, 0.85); cursor: zoom-out; }
+.lightbox img { max-width: 100%; max-height: 100%; border-radius: var(--r); }
 .quote { border-left: 3px solid var(--border-strong); padding-left: 10px; color: var(--text-dim); white-space: pre-wrap; }
 hr { border: 0; border-top: 1px solid var(--border); margin: 18px 0; width: 100%; }
 hr.dashed { border-top-style: dashed; }

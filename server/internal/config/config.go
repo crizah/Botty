@@ -32,6 +32,8 @@ type Config struct {
 	TagMaxTasks    int     // how many recent open tasks are offered to the classifier
 	ChainDepth     int     // most messages of a reply chain sent to the classifier
 	MsgRetention   int     // days recent group messages are kept for reply chains
+	MediaDir       string  // where report images are stored
+	MediaMaxMB     int     // largest image we keep
 }
 
 func Load() Config {
@@ -57,6 +59,8 @@ func Load() Config {
 		TagMaxTasks:    atoi(get("TAG_MAX_TASKS", "50"), 50),
 		ChainDepth:     atoi(get("TAG_CHAIN_DEPTH", "3"), 3),
 		MsgRetention:   atoi(get("MSG_RETENTION_DAYS", "7"), 7),
+		MediaDir:       get("MEDIA_DIR", "internal/db/.data/media"),
+		MediaMaxMB:     atoi(get("MEDIA_MAX_MB", "5"), 5),
 	}
 
 	secret := os.Getenv("JWT_SECRET")

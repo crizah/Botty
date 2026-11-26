@@ -22,6 +22,7 @@ type Querier interface {
 	CreateDuplicate(ctx context.Context, arg CreateDuplicateParams) (ReportDuplicate, error)
 	CreateGroup(ctx context.Context, arg CreateGroupParams) (WaGroup, error)
 	CreateInvite(ctx context.Context, arg CreateInviteParams) (ProjectInvite, error)
+	CreateMedia(ctx context.Context, arg CreateMediaParams) error
 	CreateMessage(ctx context.Context, arg CreateMessageParams) error
 	CreateProject(ctx context.Context, arg CreateProjectParams) (Project, error)
 	CreateReport(ctx context.Context, arg CreateReportParams) (Report, error)
@@ -33,6 +34,7 @@ type Querier interface {
 	GetGroup(ctx context.Context, id string) (WaGroup, error)
 	GetGroupByJID(ctx context.Context, jid string) (WaGroup, error)
 	GetInvite(ctx context.Context, id string) (ProjectInvite, error)
+	GetMediaFile(ctx context.Context, id string) (GetMediaFileRow, error)
 	GetMember(ctx context.Context, id string) (WaGroupMember, error)
 	GetMessage(ctx context.Context, arg GetMessageParams) (WaMessage, error)
 	GetOpenClaimByCode(ctx context.Context, code string) (GroupClaim, error)
@@ -55,6 +57,7 @@ type Querier interface {
 	ListCommentsByTask(ctx context.Context, taskID string) ([]ListCommentsByTaskRow, error)
 	ListDuplicatesByTask(ctx context.Context, taskID string) ([]ReportDuplicate, error)
 	ListGroupsForOwner(ctx context.Context, ownerUserID string) ([]ListGroupsForOwnerRow, error)
+	ListMediaByTask(ctx context.Context, taskID string) ([]ListMediaByTaskRow, error)
 	ListMembersByGroup(ctx context.Context, groupID string) ([]WaGroupMember, error)
 	ListMembersWithoutPhone(ctx context.Context, limit int64) ([]WaGroupMember, error)
 	ListOpenClaimsForUser(ctx context.Context, userID string) ([]GroupClaim, error)

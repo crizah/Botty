@@ -103,6 +103,16 @@ type ReportDuplicate struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
+type ReportMedium struct {
+	ID        string    `json:"id"`
+	ReportID  string    `json:"report_id"`
+	MessageID string    `json:"message_id"`
+	File      string    `json:"file"`
+	Mime      string    `json:"mime"`
+	Size      int64     `json:"size"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 type TagAllowlist struct {
 	ProjectID string    `json:"project_id"`
 	GroupID   string    `json:"group_id"`

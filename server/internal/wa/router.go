@@ -25,10 +25,12 @@ type Message struct {
 	SenderIDs    []string // every form of the sender ID we can work out (LID and phone JID)
 	PushName     string
 	Text         string
-	QuotedID     string // message this one replies to
-	QuotedText   string // text of that message (empty for media without a caption)
-	QuotedSender string // who wrote it (JID or LID)
-	Mentioned    bool   // the bot itself is @mentioned
+	QuotedID     string    // message this one replies to
+	QuotedText   string    // text of that message (empty for media without a caption)
+	QuotedSender string    // who wrote it (JID or LID)
+	Mentioned    bool      // the bot itself is @mentioned
+	Image        *ImageRef // the image this message carries (its caption is Text)
+	QuotedImage  *ImageRef // the image in the message this one replies to
 	Time         time.Time
 
 	// set by the router so handlers can answer without knowing about whatsmeow
@@ -36,6 +38,17 @@ type Message struct {
 	GroupName func(ctx context.Context) string
 	// Participants lists the group's members (excluding the bot) with phone numbers resolved where possible.
 	Participants func(ctx context.Context) ([]Participant, error)
+}
+
+// ImageRef is an image in a message; the bytes are only fetched when someone calls Download.
+type ImageRef struct {
+	Mime     string
+	Size     uint64 // as declared by the sender's client
+	Download func(ctx context.Context) ([]byte, error)
+}
+
+func imageRef(cli *whatsmeow.Client, img *waE2E.ImageMessage) *ImageRef {
+	return &ImageRef{Mime: img.GetMimetype(), Size: img.GetFileLength(), Download: func(ctx context.Context) ([]byte, error) { return cli.Download(ctx, img) }}
 }
 
 // Participant is one group member as WhatsApp reports it.
@@ -125,12 +138,23 @@ func (r *Router) Dispatch(cli *whatsmeow.Client, e *events.Message) {
 	if e.Message.GetConversation() != "" {
 		m.Text = e.Message.GetConversation()
 	}
+	var ci *waE2E.ContextInfo
 	if x := e.Message.GetExtendedTextMessage(); x != nil {
 		m.Text = x.GetText()
-		ci := x.GetContextInfo()
+		ci = x.GetContextInfo()
+	}
+	if img := e.Message.GetImageMessage(); img != nil { // a photo: its caption is the text
+		m.Text = img.GetCaption()
+		ci = img.GetContextInfo()
+		m.Image = imageRef(cli, img)
+	}
+	if ci != nil {
 		m.QuotedID = ci.GetStanzaID()
 		m.QuotedSender = ci.GetParticipant()
 		m.QuotedText = quotedText(ci.GetQuotedMessage())
+		if qi := ci.GetQuotedMessage().GetImageMessage(); qi != nil {
+			m.QuotedImage = imageRef(cli, qi)
+		}
 		for _, jid := range ci.GetMentionedJID() {
 			if isBot(cli, jid) {
 				m.Mentioned = true
@@ -157,7 +181,7 @@ func (r *Router) Dispatch(cli *whatsmeow.Client, e *events.Message) {
 		return "WhatsApp group"
 	}
 	m.Participants = func(ctx context.Context) ([]Participant, error) { return participants(ctx, cli, chat) }
-	log.Printf("[wa] parsed %s: textLen=%d quotedID=%q quotedTextLen=%d mentioned=%v", m.ID, len(m.Text), m.QuotedID, len(m.QuotedText), m.Mentioned)
+	log.Printf("[wa] parsed %s: textLen=%d quotedID=%q quotedTextLen=%d mentioned=%v image=%v quotedImage=%v", m.ID, len(m.Text), m.QuotedID, len(m.QuotedText), m.Mentioned, m.Image != nil, m.QuotedImage != nil)
 	if r.seen(m.ID) {
 		log.Printf("[wa] skip %s: already dispatched (duplicate delivery)", m.ID)
 		return

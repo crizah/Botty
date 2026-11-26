@@ -120,3 +120,20 @@ SELECT d.* FROM report_duplicates d
 JOIN reports r ON r.id = d.report_id
 WHERE r.task_id = ?
 ORDER BY d.created_at, d.id;
+
+-- name: CreateMedia :exec
+INSERT INTO report_media (id, report_id, message_id, file, mime, size) VALUES (?, ?, ?, ?, ?, ?);
+
+-- name: ListMediaByTask :many
+SELECT m.id, m.report_id, m.message_id, m.mime, m.size, m.created_at
+FROM report_media m
+JOIN reports r ON r.id = m.report_id
+WHERE r.task_id = ?
+ORDER BY m.created_at, m.id;
+
+-- name: GetMediaFile :one
+SELECT m.file, m.mime, t.project_id
+FROM report_media m
+JOIN reports r ON r.id = m.report_id
+JOIN tasks t ON t.id = r.task_id
+WHERE m.id = ?;

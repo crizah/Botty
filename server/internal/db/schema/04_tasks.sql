@@ -54,3 +54,16 @@ CREATE TABLE report_duplicates (
     created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP -- when it was tagged (WhatsApp gives no send time for a quoted message)
 );
 CREATE INDEX idx_report_duplicates_report ON report_duplicates(report_id);
+
+-- Images that came with a report (a captioned photo sent with the tag, or the image that was replied to).
+-- The bytes live on disk (MEDIA_DIR); file is the name inside it.
+CREATE TABLE report_media (
+    id         TEXT NOT NULL PRIMARY KEY,
+    report_id  TEXT NOT NULL REFERENCES reports(id) ON DELETE CASCADE,
+    message_id TEXT NOT NULL DEFAULT '', -- WhatsApp id of the message the image was in
+    file       TEXT NOT NULL,
+    mime       TEXT NOT NULL,
+    size       INTEGER NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_report_media_report ON report_media(report_id);

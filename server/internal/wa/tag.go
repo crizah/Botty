@@ -3,6 +3,7 @@ package wa
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"regexp"
 	"strconv"
@@ -24,6 +25,11 @@ type TagStore interface {
 	OpenReportsBy(ctx context.Context, tc services.TagContext, taskID string, reporterWaIDs []string, limit int) ([]services.ReportCandidate, error)
 	AddDuplicate(ctx context.Context, tc services.TagContext, reportID string, in services.TagInput) error
 	Thread(ctx context.Context, groupID, startID string, max int) []services.ThreadMsg
+}
+
+// MediaSaver stores a report's image (implemented by services.MediaService).
+type MediaSaver interface {
+	Save(ctx context.Context, tc services.TagContext, reportID, messageID string, data []byte) error
 }
 
 // Classifier is the Sarvam side (implemented by sarvam.Client).
@@ -64,7 +70,9 @@ type TagHandler struct {
 	Threshold    float64 // min Prism probability to file under an existing task
 	DupThreshold float64 // min probability to call two messages from the same person the exact same
 	MaxTasks     int
-	ChainDepth   int // most messages of a reply chain sent to the classifier (1 = just the replied-to message)
+	Media        MediaSaver // nil turns image saving off (the caption is still read)
+	MaxImage     int64      // largest image kept, in bytes
+	ChainDepth   int        // most messages of a reply chain sent to the classifier (1 = just the replied-to message)
 }
 
 func (h *TagHandler) Handle(ctx context.Context, m Message) {
@@ -76,6 +84,9 @@ func (h *TagHandler) Handle(ctx context.Context, m Message) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, taskTO)
 	defer cancel()
+	if h.Media == nil {
+		m.Image, m.QuotedImage = nil, nil
+	}
 
 	tc, err := h.Store.Authorize(ctx, m.GroupJID, m.SenderIDs)
 	var se *services.Error
@@ -94,18 +105,31 @@ func (h *TagHandler) Handle(ctx context.Context, m Message) {
 	if m.QuotedID == "" { // standalone: the sender reports their own issue
 		text := stripBotMention(m.Text)
 		if text == "" {
+			if m.Image != nil {
+				_ = m.Reply(ctx, noCaption)
+			}
 			return
 		}
-		h.create(ctx, m, tc, services.TagInput{MessageID: m.ID, MessageText: text, ReporterWaID: m.SenderIDs}, "")
+		if !h.imageOK(ctx, m, m.Image) {
+			return
+		}
+		h.create(ctx, m, tc, services.TagInput{MessageID: m.ID, MessageText: text, ReporterWaID: m.SenderIDs}, "", m.Image)
 		return
 	}
 	if strings.TrimSpace(m.QuotedText) == "" {
-		_ = m.Reply(ctx, "I can only read text messages for now.")
+		if m.QuotedImage != nil {
+			_ = m.Reply(ctx, noCaption)
+		} else {
+			_ = m.Reply(ctx, "I can only read text messages for now.")
+		}
 		return
 	}
 
 	in := services.TagInput{TagMessageID: m.ID, MessageID: m.QuotedID, MessageText: m.QuotedText, ReporterWaID: ids(m.QuotedSender)}
 	thread := h.thread(ctx, tc, m)
+	if !h.imageOK(ctx, m, m.QuotedImage) || !h.imageOK(ctx, m, m.Image) {
+		return
+	}
 	it, err := h.intent(ctx, m.Text)
 	if err != nil {
 		log.Printf("[wa] prism (intent): %v", err)
@@ -120,7 +144,7 @@ func (h *TagHandler) Handle(ctx context.Context, m Message) {
 	case intentDone:
 		h.done(ctx, m, tc, in, thread)
 	default:
-		h.create(ctx, m, tc, in, thread)
+		h.create(ctx, m, tc, in, thread, m.QuotedImage)
 	}
 }
 
@@ -163,7 +187,7 @@ func (h *TagHandler) intent(ctx context.Context, tagText string) (intentKind, er
 	return intentCreate, nil
 }
 
-func (h *TagHandler) create(ctx context.Context, m Message, tc services.TagContext, in services.TagInput, thread string) {
+func (h *TagHandler) create(ctx context.Context, m Message, tc services.TagContext, in services.TagInput, thread string, img *ImageRef) {
 	classify := in.MessageText // what the classifier reads: the message, or its whole reply chain
 	if thread != "" {
 		classify = thread
@@ -198,7 +222,7 @@ func (h *TagHandler) create(ctx context.Context, m Message, tc services.TagConte
 					return
 				}
 				log.Printf("[wa] tag: counted as a repeat of an existing report")
-				_ = m.Reply(ctx, "done")
+				h.finish(ctx, m, tc, repID, in.MessageID, img)
 				return
 			}
 		}
@@ -219,6 +243,44 @@ func (h *TagHandler) create(ctx context.Context, m Message, tc services.TagConte
 		return
 	}
 	log.Printf("[wa] tag: T-%d %q (new task: %v)", res.Number, res.Title, res.Created)
+	h.finish(ctx, m, tc, res.ReportID, in.MessageID, img)
+}
+
+const noCaption = "Add a caption saying what's wrong, then tag me again."
+
+// imageOK rejects an image that is too big or not jpeg/png/webp before anything is saved. The
+// real file type is checked again on the downloaded bytes.
+func (h *TagHandler) imageOK(ctx context.Context, m Message, img *ImageRef) bool {
+	if img == nil {
+		return true
+	}
+	if h.MaxImage > 0 && int64(img.Size) > h.MaxImage {
+		_ = m.Reply(ctx, fmt.Sprintf("That image is too big (max %d MB).", h.MaxImage>>20))
+		return false
+	}
+	if !services.AllowedImageType(img.Mime) {
+		_ = m.Reply(ctx, "I can only keep jpeg, png or webp images.")
+		return false
+	}
+	return true
+}
+
+// finish saves the image (if any) on the report, then answers. A failed image never undoes the report.
+func (h *TagHandler) finish(ctx context.Context, m Message, tc services.TagContext, reportID, messageID string, img *ImageRef) {
+	if img == nil || reportID == "" {
+		_ = m.Reply(ctx, "done")
+		return
+	}
+	data, err := img.Download(ctx)
+	if err == nil {
+		err = h.Media.Save(ctx, tc, reportID, messageID, data)
+	}
+	if err != nil {
+		log.Printf("[wa] tag image not saved: %v", err)
+		_ = m.Reply(ctx, "done, but I couldn't save the image.")
+		return
+	}
+	log.Printf("[wa] tag: saved a %d byte image on report %s", len(data), reportID)
 	_ = m.Reply(ctx, "done")
 }
 
@@ -230,7 +292,7 @@ func (h *TagHandler) ownReport(ctx context.Context, m Message, tc services.TagCo
 	rep, ok := h.Store.FindReport(ctx, tc, in.MessageID)
 	if !ok {
 		log.Printf("[wa] tag: own report on untracked message %s, using the normal create path", in.MessageID)
-		h.create(ctx, m, tc, in, thread)
+		h.create(ctx, m, tc, in, thread, m.QuotedImage)
 		return
 	}
 	own := services.TagInput{TaskID: rep.TaskID, MessageID: m.ID, MessageText: stripBotMention(m.Text), ReporterWaID: m.SenderIDs}
@@ -245,7 +307,7 @@ func (h *TagHandler) ownReport(ctx context.Context, m Message, tc services.TagCo
 				return
 			}
 			log.Printf("[wa] tag: own report counted as a repeat of an existing report")
-			_ = m.Reply(ctx, "done")
+			h.finish(ctx, m, tc, repID, own.MessageID, m.Image)
 			return
 		}
 	}
@@ -256,7 +318,7 @@ func (h *TagHandler) ownReport(ctx context.Context, m Message, tc services.TagCo
 		return
 	}
 	log.Printf("[wa] tag: own report added on T-%d %q", res.Number, res.Title)
-	_ = m.Reply(ctx, "done")
+	h.finish(ctx, m, tc, res.ReportID, own.MessageID, m.Image)
 }
 
 func (h *TagHandler) done(ctx context.Context, m Message, tc services.TagContext, in services.TagInput, thread string) {

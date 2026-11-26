@@ -43,6 +43,12 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	blobs, err := services.NewDiskStore(cfg.MediaDir)
+	if err != nil {
+		log.Fatal(err)
+	}
+	mediaSvc := services.NewMediaService(conn, blobs, int64(cfg.MediaMaxMB)<<20)
+
 	if cfg.WAEnabled {
 		keeper := wa.NewKeeper(services.NewGroupService(conn, cfg.BotNumber, cfg.DevMode))
 		msgLog := services.NewMessageLog(conn)
@@ -55,6 +61,8 @@ func main() {
 				DupThreshold: cfg.DupThreshold,
 				MaxTasks:     cfg.TagMaxTasks,
 				ChainDepth:   cfg.ChainDepth,
+				Media:        mediaSvc,
+				MaxImage:     mediaSvc.MaxBytes,
 			})
 		} else {
 			log.Println("[wa] SARVAM_API_KEY not set - tagging the bot to make/close tasks is disabled")
@@ -85,7 +93,7 @@ func main() {
 		go (&ingest.Worker{Resolver: ingest.StubResolver{}}).Run(ctx)
 	}
 
-	handler := middleware.Logging(middleware.CORS(cfg.AllowedOrigin)(routes(conn, cfg)))
+	handler := middleware.Logging(middleware.CORS(cfg.AllowedOrigin)(routes(conn, cfg, mediaSvc)))
 	srv := &http.Server{Addr: ":" + cfg.Port, Handler: handler, ReadHeaderTimeout: 10 * time.Second}
 
 	go func() {
@@ -102,7 +110,7 @@ func main() {
 }
 
 // routes builds the services and handlers and wires every endpoint.
-func routes(conn *sql.DB, cfg config.Config) http.Handler {
+func routes(conn *sql.DB, cfg config.Config, mediaSvc *services.MediaService) http.Handler {
 	// services
 	authSvc := services.NewAuthService(conn, cfg.JWTSecret)
 	projectSvc := services.NewProjectService(conn)
@@ -174,6 +182,7 @@ func routes(conn *sql.DB, cfg config.Config) http.Handler {
 	protected("GET /api/v1/projects/{id}/tasks", taskH.List)
 	protected("POST /api/v1/projects/{id}/tasks", taskH.Create)
 	protected("GET /api/v1/tasks/{id}", taskH.Get)
+	protected("GET /api/v1/media/{id}", handlers.NewMediaHandler(mediaSvc).Get)
 	protected("PATCH /api/v1/tasks/{id}", taskH.Update)
 	protected("PATCH /api/v1/tasks/{id}/status", taskH.SetStatus)
 	protected("POST /api/v1/tasks/{id}/reports", taskH.CreateReport)

@@ -83,9 +83,10 @@ type TagInput struct {
 
 // TagResult describes what happened, for the bot's reply.
 type TagResult struct {
-	Number  int64
-	Title   string
-	Created bool // a new task was made
+	Number   int64
+	Title    string
+	Created  bool   // a new task was made
+	ReportID string // the report that was added
 }
 
 func (s *TagService) reporterID(ctx context.Context, q *db.Queries, tc TagContext, ids []string) *string {
@@ -132,7 +133,7 @@ func (s *TagService) Create(ctx context.Context, tc TagContext, in TagInput) (Ta
 		if err := logAudit(ctx, q, auditEntry{ProjectID: tc.ProjectID, TaskID: t.ID, ReportID: rep.ID, ActorKind: "bot", Action: "report.created", Detail: truncate(in.MessageText, 80)}); err != nil {
 			return err
 		}
-		res.Number, res.Title = t.Number, t.Title
+		res.Number, res.Title, res.ReportID = t.Number, t.Title, rep.ID
 		return syncTaskStatus(ctx, q, t, "a new report was added")
 	})
 	return res, err

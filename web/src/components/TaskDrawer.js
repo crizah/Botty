@@ -154,7 +154,7 @@ export default function TaskDrawer({ taskId, onClose, onChanged }) {
         {reports.length === 0 && <div className="empty">No reports.</div>}
         {reports.length > 0 && shown.length === 0 && <div className="empty">No reports match these filters.</div>}
         {shown.map((r) => (
-          <ReportCard key={r.id} report={r} repeats={duplicates.filter((d) => d.report_id === r.id)} comments={comments.filter((c) => c.report_id === r.id)} canWrite={canWrite} run={run} />
+          <ReportCard key={r.id} report={r} repeats={duplicates.filter((d) => d.report_id === r.id)} media={(data.media || []).filter((m) => m.report_id === r.id)} comments={comments.filter((c) => c.report_id === r.id)} canWrite={canWrite} run={run} />
         ))}
         {canWrite && <AddReport task={task} run={run} />}
       </div>
@@ -177,8 +177,9 @@ export default function TaskDrawer({ taskId, onClose, onChanged }) {
   );
 }
 
-function ReportCard({ report: r, repeats, comments, canWrite, run }) {
+function ReportCard({ report: r, repeats, media, comments, canWrite, run }) {
   const [showNotes, setShowNotes] = useState(false);
+  const [zoom, setZoom] = useState(null); // media id shown full size
   const toggle = () => run(() => api.patch(`/reports/${r.id}/status`, { status: r.status === 'done' ? 'todo' : 'done' }));
 
   return (
@@ -194,6 +195,18 @@ function ReportCard({ report: r, repeats, comments, canWrite, run }) {
       </div>
 
       {r.message_text && <p className="quote mt">{r.message_text}</p>}
+      {media.length > 0 && (
+        <div className="row wrap mt">
+          {media.map((m) => (
+            <img key={m.id} className="report-img" src={`${api.defaults.baseURL}/media/${m.id}`} alt="attached to this report" loading="lazy" onClick={() => setZoom(m.id)} />
+          ))}
+        </div>
+      )}
+      {zoom && (
+        <div className="lightbox" onClick={() => setZoom(null)}>
+          <img src={`${api.defaults.baseURL}/media/${zoom}`} alt="attached to this report" />
+        </div>
+      )}
       <p className="muted">{repeats.length > 0 ? 'First reported' : 'Reported'} on {proseTime(r.created_at)}</p>
       {repeats.map((d) => (
         <div key={d.id} className="mt">
