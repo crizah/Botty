@@ -5,8 +5,10 @@ import (
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
 	"hash/fnv"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -101,7 +103,14 @@ func (r *Router) Start(ctx context.Context) {
 
 // Dispatch is called from the whatsmeow event handler, so it must return fast.
 func (r *Router) Dispatch(cli *whatsmeow.Client, e *events.Message) {
-	if !e.Info.IsGroup || e.Info.IsFromMe {
+	log.Printf("[wa] event: msg=%s chat=%s sender=%s fromMe=%v group=%v kind=%s fields=[%s] edit=%v ephemeral=%v viewonce=%v ts=%s",
+		e.Info.ID, e.Info.Chat, e.Info.Sender, e.Info.IsFromMe, e.Info.IsGroup, e.Info.Type, fieldNames(e.Message), e.IsEdit, e.IsEphemeral, e.IsViewOnce, e.Info.Timestamp.UTC().Format("15:04:05"))
+	if !e.Info.IsGroup {
+		log.Printf("[wa] skip %s: not a group message", e.Info.ID)
+		return
+	}
+	if e.Info.IsFromMe {
+		log.Printf("[wa] skip %s: sent from the bot's own number", e.Info.ID)
 		return
 	}
 	m := Message{
@@ -148,7 +157,9 @@ func (r *Router) Dispatch(cli *whatsmeow.Client, e *events.Message) {
 		return "WhatsApp group"
 	}
 	m.Participants = func(ctx context.Context) ([]Participant, error) { return participants(ctx, cli, chat) }
+	log.Printf("[wa] parsed %s: textLen=%d quotedID=%q quotedTextLen=%d mentioned=%v", m.ID, len(m.Text), m.QuotedID, len(m.QuotedText), m.Mentioned)
 	if r.seen(m.ID) {
+		log.Printf("[wa] skip %s: already dispatched (duplicate delivery)", m.ID)
 		return
 	}
 	r.Submit(m.GroupJID, func(ctx context.Context) { r.handler.Handle(ctx, m) })
@@ -164,6 +175,16 @@ func (r *Router) Submit(groupJID string, job func(context.Context)) {
 	default:
 		log.Printf("[wa] queue full, dropping a job for %s", groupJID) // TODO: change - decide on backpressure
 	}
+}
+
+// fieldNames lists which fields of a message are set (conversation, imageMessage, ...), to see what kind it was.
+func fieldNames(m *waE2E.Message) string {
+	var out []string
+	m.ProtoReflect().Range(func(fd protoreflect.FieldDescriptor, _ protoreflect.Value) bool {
+		out = append(out, string(fd.Name()))
+		return true
+	})
+	return strings.Join(out, ",")
 }
 
 func isBot(cli *whatsmeow.Client, jid string) bool {

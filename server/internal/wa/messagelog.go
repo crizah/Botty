@@ -16,11 +16,17 @@ type MessageLogger struct {
 }
 
 func (h *MessageLogger) Handle(ctx context.Context, m Message) {
-	if strings.TrimSpace(m.Text) == "" || linkCmd.MatchString(m.Text) {
+	if strings.TrimSpace(m.Text) == "" {
+		log.Printf("[wa] not logged %s: no plain text (media, sticker, reaction, edit, ...)", m.ID)
+		return
+	}
+	if linkCmd.MatchString(m.Text) {
+		log.Printf("[wa] not logged %s: link command", m.ID)
 		return
 	}
 	gid, ok := h.Groups.GroupIDByJID(ctx, m.GroupJID)
 	if !ok {
+		log.Printf("[wa] not logged %s: group %s is not linked", m.ID, m.GroupJID)
 		return
 	}
 	sender := ""
@@ -29,5 +35,7 @@ func (h *MessageLogger) Handle(ctx context.Context, m Message) {
 	}
 	if err := h.Log.Save(ctx, services.SaveMessage{GroupID: gid, MessageID: m.ID, SenderID: sender, SenderName: m.PushName, Text: m.Text, QuotedID: m.QuotedID}); err != nil {
 		log.Printf("[wa] message log: %v", err)
+		return
 	}
+	log.Printf("[wa] logged %s from %q (replying to %q)", m.ID, m.PushName, m.QuotedID)
 }

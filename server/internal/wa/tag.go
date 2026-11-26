@@ -352,14 +352,25 @@ func ids(vals ...string) []string {
 // one message), so those cases keep sending the plain message.
 func (h *TagHandler) thread(ctx context.Context, tc services.TagContext, m Message) string {
 	if h.ChainDepth < 2 {
+		log.Printf("[wa] thread: off (TAG_CHAIN_DEPTH=%d)", h.ChainDepth)
 		return ""
 	}
 	msgs := h.Store.Thread(ctx, tc.GroupID, m.QuotedID, h.ChainDepth)
-	if len(msgs) < 2 || msgs[len(msgs)-1].ID != m.QuotedID {
+	switch {
+	case len(msgs) == 0:
+		log.Printf("[wa] thread: replied-to message %s is not in the log (sent before logging, or text-less)", m.QuotedID)
+		return ""
+	case msgs[len(msgs)-1].ID != m.QuotedID:
+		log.Printf("[wa] thread: walk ended on %s, not on the replied-to message %s", msgs[len(msgs)-1].ID, m.QuotedID)
+		return ""
+	case len(msgs) == 1:
+		log.Printf("[wa] thread: %s is logged but has no earlier message in the log (its parent %q is missing or it isn't a reply)", m.QuotedID, msgs[0].QuotedID)
 		return ""
 	}
 	msgs[len(msgs)-1].Text = m.QuotedText // WhatsApp's own copy of the replied-to message
-	return formatThread(msgs)
+	out := formatThread(msgs)
+	log.Printf("[wa] thread: %d messages sent to the classifier:\n%s", len(msgs), out)
+	return out
 }
 
 // formatThread labels a reply chain for the classifier.

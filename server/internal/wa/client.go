@@ -95,7 +95,16 @@ func (c *Client) session(ctx context.Context, device *store.Device) bool {
 		case *events.Connected:
 			c.status.Store(StatusConnected)
 			log.Printf("[wa] connected as %s", cli.Store.ID)
+		case *events.UndecryptableMessage:
+			log.Printf("[wa] UNDECRYPTABLE msg=%s chat=%s sender=%s unavailable=%v type=%q failMode=%v", e.Info.ID, e.Info.Chat, e.Info.Sender, e.IsUnavailable, e.UnavailableType, e.DecryptFailMode)
+		case *events.StreamReplaced:
+			log.Printf("[wa] stream replaced: another session took over this device")
+		case *events.KeepAliveTimeout:
+			log.Printf("[wa] keepalive timeout (errors=%d)", e.ErrorCount)
+		case *events.OfflineSyncCompleted:
+			log.Printf("[wa] offline sync completed (%d events)", e.Count)
 		case *events.Disconnected:
+			log.Printf("[wa] disconnected")
 			c.status.Store(StatusConnecting)
 		case *events.LoggedOut:
 			select {
