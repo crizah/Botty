@@ -50,6 +50,7 @@ const (
 	optCreate   = "CREATE"    // intent: make a task / report from the quoted message
 	optFinished = "DONE"      // intent: the work is finished
 	optInvalid  = "INVALID"   // intent: not an instruction for the bot at all
+	optReport   = "REPORT"    // intent: the tagger adds their own report ("me too", "same for me")
 	taskTO      = 40 * time.Second
 )
 
@@ -114,6 +115,8 @@ func (h *TagHandler) Handle(ctx context.Context, m Message) {
 	switch it {
 	case intentInvalid:
 		_ = m.Reply(ctx, "that's not a valid instruction")
+	case intentReport:
+		h.ownReport(ctx, m, tc, in, thread)
 	case intentDone:
 		h.done(ctx, m, tc, in, thread)
 	default:
@@ -127,6 +130,7 @@ const (
 	intentCreate intentKind = iota
 	intentDone
 	intentInvalid
+	intentReport
 )
 
 // intent asks Prism what a reply tag means: create a task, finish one, or nothing the bot can act on.
@@ -141,13 +145,16 @@ func (h *TagHandler) intent(ctx context.Context, tagText string) (intentKind, er
 		[]sarvam.Option{
 			{ID: optCreate, Text: "Create or track a task from that message: add this, on it, noted, will do, I'll look into it, please handle this"},
 			{ID: optFinished, Text: "Say the work is finished: done, fixed, resolved, completed, sorted, closed, ho gaya, kar diya"},
+			{ID: optReport, Text: "Add their own report to the same problem: me too, same here, same for me, yeah for me neither, I'm facing this too, mine also"},
 			{ID: optInvalid, Text: "Not a valid instruction for a task bot: a joke, a random request, chit-chat, or something unrelated to tasks"},
 		})
 	if err != nil {
 		return intentCreate, err
 	}
-	log.Printf("[wa] prism (intent): create=%.2f done=%.2f invalid=%.2f", probs[optCreate], probs[optFinished], probs[optInvalid])
+	log.Printf("[wa] prism (intent): create=%.2f done=%.2f report=%.2f invalid=%.2f", probs[optCreate], probs[optFinished], probs[optReport], probs[optInvalid])
 	switch {
+	case probs[optReport] > probs[optCreate] && probs[optReport] > probs[optFinished] && probs[optReport] > probs[optInvalid]:
+		return intentReport, nil
 	case probs[optInvalid] > probs[optCreate] && probs[optInvalid] > probs[optFinished]:
 		return intentInvalid, nil
 	case probs[optFinished] > probs[optCreate]:
@@ -212,6 +219,43 @@ func (h *TagHandler) create(ctx context.Context, m Message, tc services.TagConte
 		return
 	}
 	log.Printf("[wa] tag: T-%d %q (new task: %v)", res.Number, res.Title, res.Created)
+	_ = m.Reply(ctx, "done")
+}
+
+// ownReport handles "@botty yeah for me neither" as a reply to a message that is already a report:
+// the tagger's own words become a new report by the tagger on that report's task. No task classifier
+// call is needed. When the replied-to message isn't tracked there is nothing to attach to, so it
+// goes through the normal create path.
+func (h *TagHandler) ownReport(ctx context.Context, m Message, tc services.TagContext, in services.TagInput, thread string) {
+	rep, ok := h.Store.FindReport(ctx, tc, in.MessageID)
+	if !ok {
+		log.Printf("[wa] tag: own report on untracked message %s, using the normal create path", in.MessageID)
+		h.create(ctx, m, tc, in, thread)
+		return
+	}
+	own := services.TagInput{TaskID: rep.TaskID, MessageID: m.ID, MessageText: stripBotMention(m.Text), ReporterWaID: m.SenderIDs}
+	// has this person already said exactly this on the task? then count a repeat instead of a new report
+	if cands, err := h.Store.OpenReportsBy(ctx, tc, rep.TaskID, own.ReporterWaID, 10); err != nil {
+		log.Printf("[wa] tag open reports: %v", err)
+	} else if len(cands) > 0 {
+		if repID := h.sameReport(ctx, own.MessageText, cands); repID != "" {
+			if err := h.Store.AddDuplicate(ctx, tc, repID, own); err != nil {
+				log.Printf("[wa] tag duplicate: %v", err)
+				_ = m.Reply(ctx, "Something went wrong saving that. Try again.")
+				return
+			}
+			log.Printf("[wa] tag: own report counted as a repeat of an existing report")
+			_ = m.Reply(ctx, "done")
+			return
+		}
+	}
+	res, err := h.Store.Create(ctx, tc, own)
+	if err != nil {
+		log.Printf("[wa] tag own report: %v", err)
+		_ = m.Reply(ctx, "Something went wrong saving that. Try again.")
+		return
+	}
+	log.Printf("[wa] tag: own report added on T-%d %q", res.Number, res.Title)
 	_ = m.Reply(ctx, "done")
 }
 

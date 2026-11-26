@@ -15,6 +15,7 @@ type fakeStore struct {
 	authErr  error
 	tasks    []services.TaskCandidate
 	existing bool
+	rep      db.Report // returned when existing
 	created  *services.TagInput
 	closed   *services.TagInput
 	openReps []services.ReportCandidate
@@ -29,7 +30,7 @@ func (f *fakeStore) OpenTasks(context.Context, string, int) ([]services.TaskCand
 	return f.tasks, nil
 }
 func (f *fakeStore) FindReport(context.Context, services.TagContext, string) (db.Report, bool) {
-	return db.Report{}, f.existing
+	return f.rep, f.existing
 }
 func (f *fakeStore) Create(_ context.Context, _ services.TagContext, in services.TagInput) (services.TagResult, error) {
 	f.created = &in
@@ -48,6 +49,7 @@ type fakeAI struct {
 	seq         []map[string]float64 // if set, successive Choose calls return these in order
 	calls       *int
 	finished    bool // the intent call answers DONE
+	report      bool // the intent call answers REPORT
 	invalid     bool // the intent call answers INVALID
 	intentErr   error
 	intentState *string // records what text the intent call was given
@@ -56,7 +58,7 @@ type fakeAI struct {
 }
 
 func (f fakeAI) Choose(_ context.Context, state, _ string, opts []sarvam.Option) (map[string]float64, error) {
-	if len(opts) == 3 && opts[0].ID == optCreate { // the intent call
+	if len(opts) == 4 && opts[0].ID == optCreate { // the intent call
 		if f.intentState != nil {
 			*f.intentState = state
 		}
@@ -64,6 +66,8 @@ func (f fakeAI) Choose(_ context.Context, state, _ string, opts []sarvam.Option)
 			return nil, f.intentErr
 		}
 		switch {
+		case f.report:
+			return map[string]float64{optCreate: 0.1, optFinished: 0.1, optReport: 0.7, optInvalid: 0.1}, nil
 		case f.invalid:
 			return map[string]float64{optCreate: 0.1, optFinished: 0.1, optInvalid: 0.8}, nil
 		case f.finished:
@@ -371,5 +375,68 @@ func TestFormatThread(t *testing.T) {
 	want := "Thread (oldest first):\n1. Asha: didnt get access on mail\n2. Someone (replying to 1): mine too"
 	if got != want {
 		t.Fatalf("got %q", got)
+	}
+}
+
+func TestOwnReportJoinsTheRepliedMessagesTaskWithoutClassifying(t *testing.T) {
+	calls := 0
+	st := &fakeStore{existing: true, rep: db.Report{TaskID: "t9"}}
+	h := &TagHandler{Store: st, AI: fakeAI{report: true, seq: []map[string]float64{{}}, calls: &calls}, Threshold: 0.6, MaxTasks: 50}
+	var reply string
+	h.Handle(context.Background(), Message{
+		ID: "tag1", SenderIDs: []string{"b"}, Text: "@botty yeah for me neither", Mentioned: true, QuotedID: "q1", QuotedText: "water isnt working",
+		Reply: func(_ context.Context, t string) error { reply = t; return nil },
+	})
+	if reply != "done" || st.created == nil {
+		t.Fatalf("reply %q created %+v", reply, st.created)
+	}
+	c := st.created
+	if c.TaskID != "t9" || c.MessageID != "tag1" || c.MessageText != "yeah for me neither" || len(c.ReporterWaID) != 1 || c.ReporterWaID[0] != "b" {
+		t.Fatalf("%+v", c)
+	}
+	if calls != 0 {
+		t.Fatalf("task classifier was called %d times", calls)
+	}
+}
+
+func TestOwnReportOnUntrackedMessageUsesNormalCreate(t *testing.T) {
+	st := &fakeStore{tasks: tasks}
+	h := &TagHandler{Store: st, AI: fakeAI{report: true, probs: map[string]float64{optNone: 0.9}}, Threshold: 0.6, MaxTasks: 50}
+	if r := run(h, "@botty me too"); r != "done" {
+		t.Fatalf("reply %q", r)
+	}
+	if st.created == nil || st.created.MessageID != "q1" {
+		t.Fatalf("%+v", st.created)
+	}
+}
+
+func ownReportHandler(st *fakeStore, probs map[string]float64) *TagHandler {
+	return &TagHandler{Store: st, AI: fakeAI{report: true, probs: probs}, Threshold: 0.6, DupThreshold: 0.7, MaxTasks: 50}
+}
+
+func tagOwn(h *TagHandler) string {
+	var reply string
+	h.Handle(context.Background(), Message{
+		ID: "tag2", SenderIDs: []string{"b"}, Text: "@botty me too", Mentioned: true, QuotedID: "q1", QuotedText: "water isnt working",
+		Reply: func(_ context.Context, t string) error { reply = t; return nil },
+	})
+	return reply
+}
+
+func TestOwnReportRepeatIsCountedNotAddedAgain(t *testing.T) {
+	st := &fakeStore{existing: true, rep: db.Report{TaskID: "t9"}, openReps: []services.ReportCandidate{{ID: "r7", Text: "me too"}}}
+	if r := tagOwn(ownReportHandler(st, map[string]float64{"r7": 0.95, optDiff: 0.05})); r != "done" {
+		t.Fatalf("reply %q", r)
+	}
+	if st.dupOf != "r7" || st.created != nil {
+		t.Fatalf("dupOf=%q created=%v, want a repeat of r7 and no new report", st.dupOf, st.created)
+	}
+}
+
+func TestOwnReportDifferentFromEarlierOneIsAdded(t *testing.T) {
+	st := &fakeStore{existing: true, rep: db.Report{TaskID: "t9"}, openReps: []services.ReportCandidate{{ID: "r7", Text: "also the wifi"}}}
+	tagOwn(ownReportHandler(st, map[string]float64{"r7": 0.2, optDiff: 0.8}))
+	if st.dupOf != "" || st.created == nil || st.created.TaskID != "t9" {
+		t.Fatalf("dupOf=%q created=%v, want a new report on t9", st.dupOf, st.created)
 	}
 }
