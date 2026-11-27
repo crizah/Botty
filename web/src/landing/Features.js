@@ -68,7 +68,7 @@ export default function Features() {
     <section id="features" className="fscroll">
       <div className="fscroll-intro">
         <span className="fscroll-heading-tag">What Botty does</span>
-        <h2>One bot, <em>zero lost tasks</em></h2>
+        <h2>One bot, <em>no lost tasks</em></h2>
       </div>
 
       <div className="fscroll-list">
