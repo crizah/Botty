@@ -31,10 +31,10 @@ export const SCENARIOS = {
   close: {
     group: 'Hostel Maintenance',
     messages: [
-      { id: 'a', from: 'Asha', text: '@botty the water is overflowing in room 35 :(', delay: 800 },
+      { id: 'a', from: 'Asha', text: 'the water is overflowing in room 35 :(', delay: 800 },
       { id: 'b', from: 'Dev', text: '@botty looking into it', replyTo: 'a', delay: 1400 },
       { id: 'c', bot: true, replyTo: 'b', text: 'done', delay: 1000 },
-      { id: 'd', from: 'Dev', text: 'sent someone to ur room @botty', replyTo: 'a', delay: 2200 },
+      { id: 'd', from: 'Dev', text: 'send someone to your team to fix, close this @botty', replyTo: 'a', delay: 2200 },
       { id: 'e', bot: true, replyTo: 'd', text: 'done', delay: 1000 },
     ],
   },
