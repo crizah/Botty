@@ -16,14 +16,9 @@ export default function Nav() {
       </nav>
 
       <div className="landing-nav-actions">
-        {user ? (
-          <Link to="/dashboard" className="landing-btn landing-btn-primary landing-btn-sm">Dashboard</Link>
-        ) : (
-          <>
-            <Link to="/login" className="landing-nav-link">Sign In</Link>
-            <Link to="/signup" className="landing-btn landing-btn-primary landing-btn-sm">Sign Up</Link>
-          </>
-        )}
+        {user && <Link to="/dashboard" className="landing-nav-link">Dashboard</Link>}
+        <Link to="/login" className="landing-nav-link">Sign In</Link>
+        <Link to="/signup" className="landing-btn landing-btn-primary landing-btn-sm">Sign Up</Link>
       </div>
     </header>
   );

@@ -97,7 +97,7 @@ const CircularText = ({ text, spinDuration = 20, onHover = 'speedUp', className 
         const transform = `rotateZ(${rotationDeg}deg) translate3d(${x}px, ${y}px, 0)`;
 
         return (
-          <span key={i} style={{ transform, WebkitTransform: transform }}>
+          <span key={i} className={letter === '*' ? 'ct-star' : undefined} style={{ transform, WebkitTransform: transform }}>
             {letter}
           </span>
         );
