@@ -1,7 +1,7 @@
 /* "Window" that holds a WhatsApp chat, then pans to the Botty dashboard. */
 .sc-window { background: var(--surface); border: 1px solid var(--accent); border-radius: 16px; overflow: hidden; width: 100%; }
 .sc-chrome { display: flex; align-items: center; gap: 7px; padding: 10px 14px; border-bottom: 1px solid var(--accent); background: var(--surface-2); }
-.sc-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--border-strong); }
+.sc-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); }
 .sc-path { margin-left: 8px; font-size: 11px; color: var(--text-faint); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .sc-stage { position: relative; height: 340px; overflow: hidden; }
 .sc-pane { position: absolute; inset: 0; display: flex; flex-direction: column; background: var(--surface); }
