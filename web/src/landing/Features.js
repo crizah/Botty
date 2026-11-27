@@ -10,7 +10,7 @@ const FEATURES = [
     title: 'Link a group chat in one message',
     // TODO: change — stub copy
     body: 'Add Botty to a WhatsApp group, then tag it with your project link code. Botty connects the group to that project, and every task from that chat lands on its board.',
-    points: [],
+    points: ['Invite other team members to the Dashboard to collaborate on existing tasks, create new ones and edit, add comments to existing reports'],
   },
   {
     key: 'create',
@@ -18,7 +18,11 @@ const FEATURES = [
     title: 'Tag Botty, get a ticket',
     // TODO: change — stub intro; the bullet is verbatim
     body: 'See an issue in the chat? Tag Botty and describe it. The task shows up on the dashboard before the conversation moves on.',
-    points: ['Uses a decision model to decide intent, grouping and duplication of existing tasks, therefore, dirt cheap ;)'],
+    points: [
+      'Uses a decision model to decide intent, grouping and duplication of existing tasks, therefore, dirt cheap ;)',
+      'All complaints/tasks across multiple Groupchats reside on one dashboard with a collaborative model, botty always remembers',
+      'Add notes and comments to existing tasks on the UI, manage your groups, member roles/priveleges and projects. No group gets scraped unless added to a project',
+    ],
   },
   {
     key: 'close',
@@ -59,6 +63,7 @@ const FEATURES = [
     points: [
       'Botty ignores non complaine/task requests, when tagged and otherwise. good bot :3',
       'Supports allow lists for group chats so untrusted EVIL entities dont overwhelm botty with spam',
+      'Complaints are deduped per user, i.e, a user going on and on about one complaint just gets a counter added to their existing reports',
     ],
   },
 ];

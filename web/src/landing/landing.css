@@ -7,7 +7,7 @@
   position: fixed; top: 20px; left: 50%; transform: translateX(-50%); z-index: 20;
   display: flex; align-items: center; gap: 40px; width: min(880px, calc(100% - 32px));
   padding: 10px 18px 10px 20px; border-radius: 999px;
-  background: rgba(17, 17, 19, 0.85); border: 1px solid var(--border);
+  background: rgba(17, 17, 19, 0.85); border: 1px solid var(--accent);
 }
 .landing-nav-mark { display: flex; align-items: center; gap: 10px; }
 .landing-nav-mark span { font-size: 17px; font-weight: 700; letter-spacing: -0.02em; color: var(--text); }
@@ -72,7 +72,7 @@
 }
 
 /* footer */
-.landing-footer { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 22px; padding: 56px 24px 48px; border-top: 1px solid var(--border); }
+.landing-footer { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 22px; padding: 56px 24px 48px; border-top: 1px solid var(--accent); }
 .landing-footer-tagline { max-width: 46ch; font-size: 17px; line-height: 1.5; color: var(--text-dim); }
 .landing-footer-actions { display: flex; align-items: center; gap: 16px; }
 .landing-footer-copy { font-size: 12.5px; color: var(--text-faint); }
