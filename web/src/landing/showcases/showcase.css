@@ -47,3 +47,14 @@
 .dash-reports { display: flex; flex-direction: column; gap: 4px; font-size: 10.5px; color: var(--text-dim); }
 .dash-progress { display: flex; gap: 3px; }
 .dash-progress span { flex: 1; height: 5px; border-radius: 999px; background: var(--text-dim); }
+
+/* generate-code scene */
+.gen-card { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.gen-title { font-size: 13px; }
+.gen-small { font-size: 11px; color: var(--text-dim); line-height: 1.4; }
+.gen-btn-wrap { position: relative; align-self: flex-start; padding-bottom: 6px; }
+.gen-btn { font: inherit; font-size: 12px; font-weight: 600; background: #e4e4e7; color: #09090b; border: 1px solid #e4e4e7; border-radius: 8px; padding: 7px 14px; }
+.gen-cursor { position: absolute; left: 50%; top: 50%; pointer-events: none; }
+.gen-code { display: flex; flex-direction: column; gap: 6px; }
+.gen-command { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 17px; font-weight: 800; }
+.grp-card { gap: 6px; }

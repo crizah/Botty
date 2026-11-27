@@ -2,32 +2,40 @@ import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion, useInView } from 'motion/react';
 import './showcase.css';
 
-const HOLD = 2600; // how long the finished state stays before looping
+const HOLD = 2600;
+const SLIDE = { duration: 0.55, ease: [0.16, 1, 0.3, 1] }; // how long the finished state stays before looping
 
-// Drives the script: reveals one message at a time, optionally pans to the
-// dashboard, holds, then resets. Only runs while scrolled into view.
+// Drives the script. Stages: optional "pre" (generate-code UI), "chat" (message
+// by message), optional "post" (dashboard / groups page). Holds, then loops.
+// Only runs while scrolled into view.
 function useScript(scenario, active) {
+  const [stage, setStage] = useState(scenario.pre ? 'pre' : 'chat');
+  const [preStep, setPreStep] = useState(0); // 0 idle, 1 clicking, 2 code shown
   const [count, setCount] = useState(0);
-  const [panned, setPanned] = useState(false);
 
   useEffect(() => {
     if (!active) return undefined;
     let timer;
     const msgs = scenario.messages;
-    const step = (i) => {
-      if (i < msgs.length) {
-        timer = setTimeout(() => { setCount(i + 1); step(i + 1); }, msgs[i].delay);
-      } else if (scenario.pan && i === msgs.length) {
-        timer = setTimeout(() => { setPanned(true); step(i + 1); }, 1100);
-      } else {
-        timer = setTimeout(() => { setCount(0); setPanned(false); step(0); }, HOLD + (scenario.pan ? 1500 : 0));
-      }
+    const later = (ms, fn) => { timer = setTimeout(fn, ms); };
+    const chat = (i) => {
+      setStage('chat');
+      if (i < msgs.length) later(msgs[i].delay, () => { setCount(i + 1); chat(i + 1); });
+      else if (scenario.pan) later(1100, () => { setStage('post'); later(HOLD + 1500, start); });
+      else later(HOLD, start);
     };
-    setCount(0); setPanned(false); step(0);
+    const start = () => {
+      setCount(0); setPreStep(0);
+      if (scenario.pre) {
+        setStage('pre');
+        later(1100, () => { setPreStep(1); later(500, () => { setPreStep(2); later(2200, () => chat(0)); }); });
+      } else chat(0);
+    };
+    start();
     return () => clearTimeout(timer);
   }, [scenario, active]);
 
-  return { count, panned };
+  return { stage, preStep, count };
 }
 
 const WhatsAppGlyph = () => (
@@ -149,26 +157,88 @@ function Dashboard({ pan }) {
   );
 }
 
+// The real Groups page: "Generate link code" gets clicked and the command appears.
+function GenerateCode({ step }) {
+  return (
+    <div className="dash">
+      <div className="dash-head"><strong>Groups</strong></div>
+      <div className="gen-card">
+        <strong className="gen-title">1. Add the bot and link the group</strong>
+        <p className="gen-small">Then generate a code and send it in the group. The bot ignores groups until they&apos;re linked.</p>
+        {step < 2 ? (
+          <div className="gen-btn-wrap">
+            <motion.button
+              type="button" className="gen-btn" tabIndex={-1}
+              animate={step === 1 ? { scale: [1, 0.94, 1] } : { scale: 1 }} transition={{ duration: 0.3 }}
+            >
+              Generate link code
+            </motion.button>
+            <motion.svg
+              className="gen-cursor" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"
+              initial={{ x: 90, y: 50, opacity: 0 }}
+              animate={{ x: 14, y: 8, opacity: 1 }}
+              transition={{ duration: 0.9, ease: 'easeInOut' }}
+            >
+              <path d="M5 3l14 8-6 2 4 7-3 1.5-4-7-5 4z" fill="#fff" stroke="#000" strokeWidth="1.2" />
+            </motion.svg>
+          </div>
+        ) : (
+          <motion.div className="gen-code" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
+            <span className="gen-command">@botty link BOTYY-XXXX</span>
+            <span className="gen-small">Single use, expires in 30 minutes.</span>
+          </motion.div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// The project's Groups tab, with the freshly linked group attached.
+function GroupsPage({ group }) {
+  return (
+    <div className="dash">
+      <div className="dash-head"><strong>Groups in this project</strong></div>
+      <motion.div
+        className="dash-card fresh grp-card"
+        initial={{ opacity: 0, y: -12, scale: 0.96 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ delay: 0.45, type: 'spring', damping: 22, stiffness: 260 }}
+      >
+        <div className="dash-card-top">
+          <span className="dash-title">{group.name}</span>
+          <span className="dash-tag done">linked</span>
+        </div>
+        <span className="dash-reports">{group.members} members · {group.allowed} allowed to tag @botty</span>
+      </motion.div>
+    </div>
+  );
+}
+
+const PATHS = { pre: 'botty.app/groups', chat: 'web.whatsapp.com', post: 'botty.app/projects/hostel' };
+
 export default function ChatShowcase({ scenario }) {
   const ref = useRef(null);
   const inView = useInView(ref, { margin: '-15% 0px' });
-  const { count, panned } = useScript(scenario, inView);
+  const { stage, preStep, count } = useScript(scenario, inView);
+  const path = stage === 'post' && scenario.pan.kind === 'groups' ? 'botty.app/projects/hostel/groups' : PATHS[stage];
 
   return (
     <div className="sc-window" ref={ref}>
       <div className="sc-chrome">
         <span className="sc-dot" /><span className="sc-dot" /><span className="sc-dot" />
-        <span className="sc-path">{panned ? 'botty.app/projects/hostel' : 'web.whatsapp.com'}</span>
+        <span className="sc-path">{path}</span>
       </div>
       <div className="sc-stage">
         <AnimatePresence initial={false} mode="popLayout">
-          {!panned ? (
-            <motion.div key="chat" className="sc-pane wa" initial={{ x: 0 }} exit={{ x: '-100%' }} transition={{ duration: 0.55, ease: [0.16, 1, 0.3, 1] }}>
+          {stage === 'chat' ? (
+            <motion.div key="chat" className="sc-pane wa" initial={{ x: scenario.pre ? '100%' : 0 }} animate={{ x: 0 }} exit={{ x: '-100%' }} transition={SLIDE}>
               <Chat scenario={scenario} count={count} />
             </motion.div>
           ) : (
-            <motion.div key="dash" className="sc-pane" initial={{ x: '100%' }} animate={{ x: 0 }} transition={{ duration: 0.55, ease: [0.16, 1, 0.3, 1] }}>
-              <Dashboard pan={scenario.pan} />
+            <motion.div key={stage} className="sc-pane" initial={{ x: stage === 'pre' ? 0 : '100%' }} animate={{ x: 0 }} exit={{ x: '-100%' }} transition={SLIDE}>
+              {stage === 'pre' ? <GenerateCode step={preStep} />
+                : scenario.pan.kind === 'groups' ? <GroupsPage group={scenario.pan.group} />
+                : <Dashboard pan={scenario.pan} />}
             </motion.div>
           )}
         </AnimatePresence>
