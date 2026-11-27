@@ -32,10 +32,10 @@ function Shell() {
   return (
     <div className="shell">
       <aside className="sidebar">
-        <NavLink to="/" className="brand"><Logo size={32} />BOTTY</NavLink>
+        <NavLink to="/dashboard" className="brand"><Logo size={32} />BOTTY</NavLink>
 
         <nav className="side-nav">
-          <NavLink to="/" end className={cls}>Dashboard</NavLink>
+          <NavLink to="/dashboard" end className={cls}>Dashboard</NavLink>
 
           {/* Projects dropdown, with + to add one */}
           <div className="side-head">

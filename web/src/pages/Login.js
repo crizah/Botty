@@ -13,7 +13,7 @@ export default function Login() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
-  if (user) return <Navigate to="/" replace />;
+  if (user) return <Navigate to="/dashboard" replace />;
 
   const submit = async (e) => {
     e.preventDefault();
@@ -21,7 +21,7 @@ export default function Login() {
     setError('');
     try {
       await login(email, password);
-      nav('/');
+      nav('/dashboard');
     } catch (err) {
       setError(errMsg(err));
     } finally {

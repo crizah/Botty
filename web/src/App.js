@@ -11,17 +11,19 @@ import ProjectGroups from './pages/ProjectGroups';
 import Activity from './pages/Activity';
 import ProjectUsers from './pages/ProjectUsers';
 import InvitePage from './pages/InvitePage';
+import LandingPage from './landing/LandingPage';
 
 export default function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
         <Routes>
+          <Route path="/" element={<LandingPage />} />
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
           <Route path="/invite" element={<InvitePage />} />
           <Route element={<Layout />}>
-            <Route path="/" element={<Dashboard />} />
+            <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/groups" element={<Groups />} />
             <Route path="/projects/:id" element={<ProjectLayout />}>
               <Route index element={<Board />} />

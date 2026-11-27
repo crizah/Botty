@@ -103,7 +103,7 @@ export default function Groups() {
           ))}
         </div>
       )}
-      {groups?.length > 0 && <p className="mt"><Link to="/">Go to projects →</Link></p>}
+      {groups?.length > 0 && <p className="mt"><Link to="/dashboard">Go to projects →</Link></p>}
     </div>
   );
 }
